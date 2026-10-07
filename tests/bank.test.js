@@ -17,8 +17,8 @@ test('end-to-end mock: authorization, state binding, account access, sync and re
  global.fetch=async(url,options)=>{calls++;assert.ok(options.headers.Authorization.startsWith('Bearer '));const path=new URL(url).pathname;
  if(path==='/application')return response({active:true,environment:'PRODUCTION',redirect_urls:[ORIGIN+'/api/bank/callback']});
  if(path==='/aspsps')return response({aspsps:[{country:'FR',name:'BNP Paribas',maximum_consent_validity:15552000}]});
- if(path==='/auth'){const body=JSON.parse(options.body);authState=body.state;assert.equal(body.redirect_url,ORIGIN+'/api/bank/callback');assert.equal(body.psu_type,'personal');return response({url:'https://auth.enablebanking.com/ais/start?sessionid=mock'});}
- if(path==='/sessions')return response({session_id:'mock-session',accounts:[{uid:'authorized',currency:'EUR',name:'Compte courant',cash_account_type:'CACC',identification_hash:'stable'}],access:{valid_until:new Date(Date.now()+86400000).toISOString()}});
+ if(path==='/auth'){const body=JSON.parse(options.body);authState=body.state;assert.equal(body.redirect_url,ORIGIN+'/api/bank/callback');assert.equal(body.psu_type,'personal');assert.equal(body.access.balances,true);assert.equal(body.access.transactions,true);return response({url:'https://auth.enablebanking.com/ais/start?sessionid=mock'});}
+ if(path==='/sessions')return response({session_id:'mock-session',accounts:[{uid:'authorized',usage:'PRIVATE',name:'Compte courant',cash_account_type:'CACC',identification_hash:'stable'}],access:{valid_until:new Date(Date.now()+86400000).toISOString()}});
  if(options.method==='DELETE'){assert.equal(path,'/sessions/mock-session');revoked=true;return response({})}
  if(path==='/accounts/authorized/transactions')return response({transactions:[{status:'BOOK',credit_debit_indicator:'DBIT',booking_date:'2026-10-07',transaction_amount:{amount:'12.80',currency:'EUR'},creditor:{name:'Marché'},entry_reference:'unique'}],continuation_key:null});
  if(path==='/accounts/authorized/balances')return response({balances:[{balance_type:'ITAV',balance_amount:{amount:'842.30',currency:'EUR'}}]});
