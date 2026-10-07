@@ -1,5 +1,14 @@
 # Versions
 
+## 0.4.0
+
+- Connexion BNP via Enable Banking, consultation seulement, sur l’adresse de production permanente.
+- Clé RSA côté serveur ; cookie de session chiffré, HttpOnly, Secure ; retour bancaire protégé par état aléatoire.
+- Compte sélectionnable, actualisation à l’ouverture et toutes les 10 minutes au premier plan, déconnexion avec révocation de session.
+- Débits EUR comptabilisés des 90 derniers jours ; solde disponible ou comptable identifié. Pas de promesse de détection instantanée ni du sans-contact.
+- Aucune base de données bancaire : opérations en mémoire dans la page ; notes et préférences locales.
+- Configuration et autorisation réelle nécessaires avant usage.
+
 ## 0.3.0
 
 - Empreinte du code générée à chaque déploiement : les changements déclenchent une nouvelle version automatiquement.

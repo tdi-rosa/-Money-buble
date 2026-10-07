@@ -1,0 +1,17 @@
+# Connexion personnelle BNP Paribas
+
+Application Enable Banking : `361704f1-6efa-465b-9f90-0b00b6693c4e`.
+Adresse permanente : https://money-bubble-theo.vercel.app/
+Retour autorisé : https://money-bubble-theo.vercel.app/api/bank/callback
+
+1. Enregistrer l’application Production dans Enable Banking puis utiliser **Activate by linking accounts** pour associer ses propres comptes BNP. Le mode restreint autorise seulement les comptes ainsi associés.
+2. Dans Vercel, ajouter `ENABLE_BANKING_PRIVATE_KEY` en **Secret**, scope **Production**, avec le PEM complet téléchargé. Ne jamais le committer, l’envoyer au navigateur ou le placer dans une variable publique. `ENABLE_BANKING_APP_ID` est optionnel pour remplacer l’identifiant ci-dessus.
+3. Déployer après l’ajout de la variable. Ouvrir l’adresse permanente, Réglages → Connecter BNP Paribas. L’autorisation bancaire doit être refaite depuis l’app après l’activation du compte dans le portail.
+
+Le serveur Node signe les appels Enable Banking avec RS256. L’autorisation bancaire constitue l’accès privé à cette session ; pas de mot de passe Money Bubble distinct. Le cookie de session est chiffré AES-GCM, lié à son usage, HttpOnly, Secure, SameSite=Lax et sans Domain. Les opérations exigent ce cookie ; aucun compte fourni par le client ne peut être consulté s’il n’appartient pas à la session autorisée. Les mutations exigent l’Origin canonique et la production est seule autorisée. Le callback vérifie un état aléatoire lié au navigateur.
+
+Le secret de chiffrement du cookie est dérivé de la clé privée avec SHA256 et un préfixe de domaine. Changer la clé invalide les cookies existants. Il n’y a pas de stockage bancaire serveur, ni de tâche en arrière-plan : récupération à l’ouverture et toutes les 10 minutes si l’app est visible. Limites API/bancaires applicables.
+
+Les débits comptabilisés EUR des 90 derniers jours alimentent les bulles. Les crédits et opérations en attente sont exclus. Un solde disponible ITAV/CLAV est préféré ; sinon ITBD/CLBD est identifié comme comptable. Les catégories sont estimées à partir du MCC quand fourni. Les paiements sans contact ne sont pas identifiés spécifiquement. Les données en mémoire ne sont pas une archive ; export possible. Les notes et paramètres restent locaux.
+
+Validation : tests de signature, chiffrement, expiration, CSRF, accès aux comptes, conversion des montants et parcours complet avec fournisseur simulé. La validation réelle nécessite la configuration de la clé et le consentement du titulaire du compte ; les tests simulés ne garantissent pas la disponibilité du connecteur bancaire.

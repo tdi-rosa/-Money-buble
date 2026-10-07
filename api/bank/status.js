@@ -1,0 +1,2 @@
+import {guard,session,privateKey,failure} from '../../server/bank.js';
+export default function handler(req,res){try{guard(req,res,'GET');try{privateKey()}catch{res.json({configured:false,connected:false});return}let s;try{s=session(req)}catch{}res.json({configured:true,connected:!!s,expiresAt:s?new Date(s.exp*1000).toISOString():null,accounts:s?s.accounts.map(a=>({id:a.uid,name:a.name,type:a.type})):[]})}catch(e){failure(res,e)}}

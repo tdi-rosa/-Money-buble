@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {generateKeyPairSync,verify} from 'node:crypto';
+import {seal,unseal,jwt,guard,mapTransactions,selectBalance,decimalCents,same,session,ORIGIN} from '../server/bank.js';
+const keys=generateKeyPairSync('rsa',{modulusLength:2048});
+process.env.ENABLE_BANKING_PRIVATE_KEY=keys.privateKey.export({type:'pkcs8',format:'pem'});
+test('bank cookies are encrypted, authenticated, expire and are purpose bound',()=>{const v={sid:'secret-session',accounts:[{uid:'abc'}],exp:Date.now()/1000+60};const token=seal(v,'bank-session');assert.deepEqual(unseal(token,'bank-session'),v);assert.equal(token.includes('secret-session'),false);assert.equal(unseal(token,'bank-connect'),null);const raw=Buffer.from(token,'base64url');raw[raw.length-1]^=1;assert.equal(unseal(raw.toString('base64url'),'bank-session'),null);assert.equal(unseal(seal({...v,exp:1},'bank-session'),'bank-session'),null);assert.throws(()=>session({headers:{}}),/reconnect/)});
+test('JWT uses RS256 and correct app identity without exposing private key',()=>{const [header,payload,signature]=jwt().split('.');assert.equal(JSON.parse(Buffer.from(header,'base64url')).kid,'361704f1-6efa-465b-9f90-0b00b6693c4e');assert.equal(JSON.parse(Buffer.from(payload,'base64url')).aud,'api.enablebanking.com');assert.ok(verify('RSA-SHA256',Buffer.from(header+'.'+payload),keys.publicKey,Buffer.from(signature,'base64url')))});
+test('mutations reject cross-origin requests and preview hosts',()=>{const res={setHeader(){}};assert.doesNotThrow(()=>guard({method:'POST',headers:{host:new URL(ORIGIN).host,origin:ORIGIN}},res,'POST'));assert.throws(()=>guard({method:'POST',headers:{host:new URL(ORIGIN).host,origin:'https://evil.example'}},res,'POST'),/origin/);assert.throws(()=>guard({method:'GET',headers:{host:'preview.vercel.app'}},res,'GET'),/host/);assert.equal(same('abc','abc'),true);assert.equal(same('abc','ééé'),false)});
+test('money uses exact cents, rejects excessive precision and unknown balance types',()=>{assert.equal(decimalCents('-100.01'),-10001);assert.equal(decimalCents('0.10'),10);assert.throws(()=>decimalCents('0.001'));assert.equal(selectBalance([{balance_type:'XPCD',balance_amount:{currency:'EUR',amount:'999'}}]),null);assert.equal(selectBalance([{balance_type:'CLBD',balance_amount:{currency:'EUR',amount:'8'}},{balance_type:'ITAV',balance_amount:{currency:'EUR',amount:'7'}}]).amount,700)});
+test('bank sync excludes credits, pending, foreign currency; preserves repeated purchases',()=>{const base={status:'BOOK',credit_debit_indicator:'DBIT',transaction_date:'2026-10-07',booking_date:'2026-10-08',transaction_amount:{currency:'EUR',amount:'2.55'},creditor:{name:'Métro'},merchant_category_code:'4111'};const rows=[base,base,{...base,status:'PDNG'},{...base,credit_debit_indicator:'CRDT'},{...base,transaction_amount:{currency:'USD',amount:'3.00'}}];const mapped=mapTransactions(rows,'account');assert.equal(mapped.length,2);assert.notEqual(mapped[0].id,mapped[1].id);assert.equal(mapped[0].amountCents,255);assert.equal(mapped[0].category,'transport');assert.equal(mapped[0].dateBasis,'transaction');assert.deepEqual(mapTransactions(rows,'account'),mapped);assert.notEqual(mapTransactions(rows,'other')[0].id,mapped[0].id);assert.equal(mapTransactions([{...base,entry_reference:'same'},{...base,entry_reference:'same'}],'a').length,1)});
+
+test('end-to-end mock: authorization, state binding, account access, sync and revocation',async()=>{
+ const {default:start}=await import('../api/bank/start.js'),{default:callback}=await import('../api/bank/callback.js'),{default:sync}=await import('../api/bank/sync.js'),{default:disconnect}=await import('../api/bank/disconnect.js');
+ const previous=global.fetch;let authState,calls=0,revoked=false;
+ const response=data=>({ok:true,status:200,json:async()=>data});
+ global.fetch=async(url,options)=>{calls++;assert.ok(options.headers.Authorization.startsWith('Bearer '));const path=new URL(url).pathname;
+ if(path==='/aspsps')return response({aspsps:[{country:'FR',name:'BNP Paribas',maximum_consent_validity:15552000}]});
+ if(path==='/auth'){const body=JSON.parse(options.body);authState=body.state;assert.equal(body.redirect_url,ORIGIN+'/api/bank/callback');assert.equal(body.psu_type,'personal');return response({url:'https://auth.enablebanking.com/ais/start?sessionid=mock'});}
+ if(path==='/sessions')return response({session_id:'mock-session',accounts:[{uid:'authorized',currency:'EUR',name:'Compte courant',cash_account_type:'CACC',identification_hash:'stable'}],access:{valid_until:new Date(Date.now()+86400000).toISOString()}});
+ if(options.method==='DELETE'){assert.equal(path,'/sessions/mock-session');revoked=true;return response({})}
+ if(path==='/accounts/authorized/transactions')return response({transactions:[{status:'BOOK',credit_debit_indicator:'DBIT',booking_date:'2026-10-07',transaction_amount:{amount:'12.80',currency:'EUR'},creditor:{name:'Marché'},entry_reference:'unique'}],continuation_key:null});
+ if(path==='/accounts/authorized/balances')return response({balances:[{balance_type:'ITAV',balance_amount:{amount:'842.30',currency:'EUR'}}]});
+ throw Error('Unexpected API path');};
+ const makeRes=()=>({headers:{},statusCode:200,setHeader(k,v){this.headers[k]=v},getHeader(k){return this.headers[k]},status(n){this.statusCode=n;return this},json(x){this.body=x},redirect(n,url){this.statusCode=n;this.location=url}});
+ const req=(method,body,cookies='')=>({method,body,headers:{host:new URL(ORIGIN).host,origin:ORIGIN,cookie:cookies,'x-real-ip':'127.0.0.1','user-agent':'test'},url:'/api/bank/start'});
+ try{const first=makeRes();await start(req('POST',{}),first);assert.equal(first.statusCode,200);const connectCookie=first.headers['Set-Cookie'][0].split(';')[0];
+ const bad=makeRes();await callback({...req('GET',undefined,connectCookie),url:'/api/bank/callback?code=mock&state=wrong'},bad);assert.ok(bad.location.endsWith('bank=state'));assert.equal(calls,2);
+ const cb=makeRes();await callback({...req('GET',undefined,connectCookie),url:'/api/bank/callback?code=mock&state='+authState},cb);assert.ok(cb.location.endsWith('bank=connected'));const bankCookie=cb.headers['Set-Cookie'].find(x=>x.startsWith('__Host-mb-bank=')).split(';')[0];
+ const denied=makeRes(),count=calls;await sync(req('POST',{accountId:'not-authorized'},bankCookie),denied);assert.equal(denied.statusCode,403);assert.equal(calls,count);
+ const ok=makeRes();await sync(req('POST',{accountId:'authorized'},bankCookie),ok);assert.equal(ok.body.transactions[0].amountCents,1280);assert.equal(ok.body.balance.amount,84230);assert.equal(ok.headers['Cache-Control'],'no-store');
+ const done=makeRes();await disconnect(req('POST',{},bankCookie),done);assert.ok(revoked);assert.ok(done.headers['Set-Cookie'][0].includes('Max-Age=0'));
+ }finally{global.fetch=previous}
+});
