@@ -1,5 +1,14 @@
 # Versions
 
+## 0.3.0
+
+- Empreinte du code générée à chaque déploiement : les changements déclenchent une nouvelle version automatiquement.
+
+- Application automatique des nouvelles versions complètes, sans bouton de mise à jour.
+- Vérification à chaque ouverture/retour au premier plan et toutes les minutes pendant l’utilisation.
+- Activation différée tant qu’une bulle est saisie ou qu’un panneau est ouvert.
+- Données locales conservées. Adresse de production stable indispensable : un lien contenant le hash d’un déploiement ne se met pas à jour.
+
 ## 0.2.0
 
 - Nouvelle interface mobile plein écran avec très peu de texte.

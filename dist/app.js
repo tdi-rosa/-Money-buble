@@ -1,5 +1,6 @@
 import {categories,euro,dateKey,shiftDate,validateImport,demoData} from './core.js';
 import {BubbleField} from './physics.js';
+import {autoUpdates} from './updates.js';
 import {bounds,navigate,groupTransactions,sum} from './periods.js';
 const $=id=>document.getElementById(id),today=dateKey(),field=new BubbleField(),canvas=$('canvas'),ctx=canvas.getContext('2d'),stage=$('stage');
 const keys={tx:'bulles-transactions-v1',notes:'bulles-reflections-v1',balance:'money-bubble-balance-v1',prefs:'money-bubble-prefs-v1'};let data=[],demo=true,notes={},balance=null,prefs={motion:matchMedia('(prefers-reduced-motion: reduce)').matches,privacy:false,haptics:false},mode='day',selected=today,scene=null,groups=[],pointer=null,raf=0,last=0,accumulator=0,w=400,h=400,activeTransaction=null,installPrompt=null,hiddenWarning=false;
@@ -58,6 +59,11 @@ $('importFile').onchange=async()=>{const file=$('importFile').files[0];if(!file)
 $('exportButton').onclick=()=>{const transactions=data.map(t=>({...t,category:notes[t.id]?.category||t.category})),blob=new Blob([JSON.stringify({version:1,transactions},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=demo?'money-bubble-demo.json':'money-bubble-depenses.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 $('resetButton').onclick=()=>{if(!confirm('Effacer les dépenses, notes et solde locaux et revenir à la démonstration ?'))return;try{localStorage.removeItem(keys.tx);localStorage.removeItem(keys.notes);localStorage.removeItem(keys.balance)}catch{toast('Impossible d’effacer les données locales.');return}data=buildDemo();demo=true;notes={};balance=null;selected=today;refresh();$('settings').close()};
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('installButton').hidden=false});$('installButton').onclick=async()=>{if(installPrompt){await installPrompt.prompt();installPrompt=null;$('installButton').hidden=true}};
-if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js').then(reg=>{const offer=()=>{if(reg.waiting){$('updateButton').hidden=false;$('updateButton').onclick=()=>reg.waiting?.postMessage({type:'SKIP_WAITING'})}};offer();reg.addEventListener('updatefound',()=>{const worker=reg.installing;worker?.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller)offer()})});window.addEventListener('focus',()=>reg.update().catch(()=>{}));let refreshed=false;const hadController=!!navigator.serviceWorker.controller;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(hadController&&!refreshed){refreshed=true;location.reload()}})}).catch(()=>{})}
+if('serviceWorker'in navigator){navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).then(reg=>{
+  const updates=autoUpdates(reg,{isBusy:()=>!!pointer||!!document.querySelector('dialog[open]'),visible:()=>!document.hidden,reload:()=>location.reload(),hadController:!!navigator.serviceWorker.controller,onControllerChange:cb=>navigator.serviceWorker.addEventListener('controllerchange',cb),schedule:(cb,ms)=>setInterval(cb,ms)});
+  window.addEventListener('focus',updates.check);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)updates.check()});
+  for(const dialog of document.querySelectorAll('dialog'))dialog.addEventListener('close',updates.flush);
+}).catch(()=>{})}
 document.addEventListener('keydown',e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA'].includes(document.activeElement?.tagName))return;if(e.key==='ArrowLeft'){e.preventDefault();travel(-1)}if(e.key==='ArrowRight'){e.preventDefault();travel(1)}});
 syncPrefs();refresh();
