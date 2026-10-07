@@ -15,6 +15,7 @@ test('end-to-end mock: authorization, state binding, account access, sync and re
  const previous=global.fetch;let authState,calls=0,revoked=false;
  const response=data=>({ok:true,status:200,json:async()=>data});
  global.fetch=async(url,options)=>{calls++;assert.ok(options.headers.Authorization.startsWith('Bearer '));const path=new URL(url).pathname;
+ if(path==='/application')return response({active:true,environment:'PRODUCTION',redirect_urls:[ORIGIN+'/api/bank/callback']});
  if(path==='/aspsps')return response({aspsps:[{country:'FR',name:'BNP Paribas',maximum_consent_validity:15552000}]});
  if(path==='/auth'){const body=JSON.parse(options.body);authState=body.state;assert.equal(body.redirect_url,ORIGIN+'/api/bank/callback');assert.equal(body.psu_type,'personal');return response({url:'https://auth.enablebanking.com/ais/start?sessionid=mock'});}
  if(path==='/sessions')return response({session_id:'mock-session',accounts:[{uid:'authorized',currency:'EUR',name:'Compte courant',cash_account_type:'CACC',identification_hash:'stable'}],access:{valid_until:new Date(Date.now()+86400000).toISOString()}});
@@ -25,7 +26,7 @@ test('end-to-end mock: authorization, state binding, account access, sync and re
  const makeRes=()=>({headers:{},statusCode:200,setHeader(k,v){this.headers[k]=v},getHeader(k){return this.headers[k]},status(n){this.statusCode=n;return this},json(x){this.body=x},redirect(n,url){this.statusCode=n;this.location=url}});
  const req=(method,body,cookies='')=>({method,body,headers:{host:new URL(ORIGIN).host,origin:ORIGIN,cookie:cookies,'x-real-ip':'127.0.0.1','user-agent':'test'},url:'/api/bank/start'});
  try{const first=makeRes();await start(req('POST',{}),first);assert.equal(first.statusCode,200);const connectCookie=first.headers['Set-Cookie'][0].split(';')[0];
- const bad=makeRes();await callback({...req('GET',undefined,connectCookie),url:'/api/bank/callback?code=mock&state=wrong'},bad);assert.ok(bad.location.endsWith('bank=state'));assert.equal(calls,2);
+ const bad=makeRes();await callback({...req('GET',undefined,connectCookie),url:'/api/bank/callback?code=mock&state=wrong'},bad);assert.ok(bad.location.endsWith('bank=state'));assert.equal(calls,3);
  const cb=makeRes();await callback({...req('GET',undefined,connectCookie),url:'/api/bank/callback?code=mock&state='+authState},cb);assert.ok(cb.location.endsWith('bank=connected'));const bankCookie=cb.headers['Set-Cookie'].find(x=>x.startsWith('__Host-mb-bank=')).split(';')[0];
  const denied=makeRes(),count=calls;await sync(req('POST',{accountId:'not-authorized'},bankCookie),denied);assert.equal(denied.statusCode,403);assert.equal(calls,count);
  const ok=makeRes();await sync(req('POST',{accountId:'authorized'},bankCookie),ok);assert.equal(ok.body.transactions[0].amountCents,1280);assert.equal(ok.body.balance.amount,84230);assert.equal(ok.headers['Cache-Control'],'no-store');
