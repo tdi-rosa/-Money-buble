@@ -1,0 +1,6 @@
+{
+  "framework": null,
+  "buildCommand": "npm test && npm run check",
+  "installCommand": "npm install --ignore-scripts",
+  "outputDirectory": "dist"
+}
