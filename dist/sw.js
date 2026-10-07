@@ -1,7 +1,7 @@
-const CACHE='bulles-shell-0.1.0';
-const SHELL=['./','./index.html','./style.css','./app.js','./core.js','./icon.svg','./icon-192.png','./icon-512.png','./manifest.webmanifest'];
-self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL))));
-self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('bulles-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
+const CACHE='money-bubble-shell-0.2.0';
+const SHELL=['./','./index.html','./style.css','./app.js','./core.js','./physics.js','./periods.js','./icon.svg','./icon-192.png','./icon-512.png','./manifest.webmanifest'];
+self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(async c=>{for(const path of SHELL){const res=await fetch(path,{cache:'reload'});if(!res.ok||res.redirected)throw Error('App shell unavailable');await c.put(path,res)}})));
+self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>(k.startsWith('bulles-shell-')||k.startsWith('money-bubble-shell-'))&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('message',e=>{if(e.data?.type==='SKIP_WAITING')self.skipWaiting()});
-// Only same-origin application files may enter this cache. No banking API responses.
-self.addEventListener('fetch',e=>{const url=new URL(e.request.url);if(e.request.method!=='GET'||url.origin!==self.location.origin||url.search||url.pathname.includes('/api/'))return;const allowed=SHELL.some(p=>new URL(p,self.registration.scope).pathname===url.pathname);if(!allowed)return;e.respondWith(fetch(e.request).then(res=>{if(res.ok&&!res.redirected&&res.type==='basic'&&(res.headers.get('content-type')||'').includes(url.pathname.endsWith('.js')?'javascript':url.pathname.endsWith('.css')?'css':url.pathname.endsWith('.png')?'png':url.pathname.endsWith('.svg')?'svg':url.pathname.endsWith('webmanifest')?'json':'html')){const copy=res.clone();caches.open(CACHE).then(c=>c.put(e.request,copy))}return res}).catch(()=>caches.match(e.request).then(c=>c||Response.error())))});
+// Versioned shell stays coherent; financial data and callback URLs never enter the cache.
+self.addEventListener('fetch',e=>{const url=new URL(e.request.url);if(e.request.method!=='GET'||url.origin!==self.location.origin||url.search||url.pathname.includes('/api/'))return;if(!SHELL.some(p=>new URL(p,self.registration.scope).pathname===url.pathname))return;e.respondWith(caches.match(e.request).then(cached=>cached||fetch(e.request)))});

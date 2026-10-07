@@ -1,1 +1,1 @@
-{"name":"bulles-depenses","private":true,"version":"0.1.0","type":"module","scripts":{"test":"node --test tests/*.test.js","check":"node --check dist/app.js && node --check dist/core.js && node --check dist/sw.js"}}
+{"name":"money-bubble","private":true,"version":"0.2.0","type":"module","scripts":{"test":"node --test tests/*.test.js","check":"node --check dist/app.js && node --check dist/core.js && node --check dist/physics.js && node --check dist/periods.js && node --check dist/sw.js"}}
