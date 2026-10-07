@@ -1,16 +1,16 @@
 # Money Bubble
 
-App : https://bulles-depenses.theopro1.chatgpt.site
+Hébergement indépendant : Vercel (configuration prête, import à finaliser dans le compte du propriétaire).
 
 Dépôt : https://github.com/tdi-rosa/-Money-buble
 
-Le code est maintenant sur ce GitHub. Les tests tournent automatiquement après un push. La publication du site reste une étape distincte : ce dépôt n'est pas encore relié à un hébergeur à déploiement automatique.
+Le code est sur ce GitHub. Les tests tournent automatiquement après un push. `vercel.json` contient les paramètres de publication : framework Other, racine du dépôt, sortie `dist`. Importer ce dépôt depuis https://vercel.com/new puis cliquer Deploy. Après liaison, les changements sur `main` sont déployés automatiquement. Utiliser l'adresse de production `.vercel.app` pour installer l'app, sans connexion à ChatGPT. L'autorisation Vercel actuelle a empêché la création automatique du projet ; aucun déploiement indépendant n'est encore confirmé.
 
 PWA personnelle en français, conçue pour visualiser les dépenses quotidiennes sur Android/Fairphone. Version 0.1.0 : démonstration interactive et import JSON local. **La connexion bancaire n'est pas encore implémentée ni activée.**
 
 ## Utilisation
 
-Ouvrir le site dans Chrome sur Android puis utiliser « Installer l'application » ou « Ajouter à l'écran d'accueil ». L'installation et le mode hors ligne doivent être vérifiés sur le téléphone ; la protection privée de l'hébergement peut affecter le service worker. Les achats fictifs sont signalés et ne sont jamais mélangés aux imports. Les données importées et notes sont enregistrées uniquement dans le navigateur, sans chiffrement applicatif. Ne pas considérer cette version comme un coffre bancaire sécurisé.
+Ouvrir le site dans Chrome sur Android puis utiliser « Installer l'application » ou « Ajouter à l'écran d'accueil ». L'installation et le mode hors ligne doivent être vérifiés sur le téléphone. Utiliser le domaine de production Vercel accessible publiquement pour la démonstration ; les futures données bancaires nécessiteront une authentification propre à Money Bubble. Les achats fictifs sont signalés et ne sont jamais mélangés aux imports. Les données importées et notes sont enregistrées uniquement dans le navigateur, sans chiffrement applicatif. Ne pas considérer cette version comme un coffre bancaire sécurisé.
 
 Une bulle représente une dépense positive, sa surface est proportionnelle au montant. Même échelle entre les journées, déterminée par l'ensemble des données chargées. Avec beaucoup de données ou un montant exceptionnel, les petites bulles deviennent peu lisibles : utiliser la liste. Les revenus, remboursements et devises autres que l'euro ne sont pas pris en charge par cet import initial.
 
