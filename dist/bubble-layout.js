@@ -59,7 +59,7 @@ export function periodCamera(groups,{mode='day',date=groups[0]?.start,width=400,
   const scale=Math.min((width-24)/(maxX-minX),(height-40)/(maxY-minY))*(mode==='month'?.82:1);
   const cx=(minX+maxX)/2,cy=(minY+maxY)/2;
   const project=p=>({x:width/2+(p.x-cx)*scale,y:height/2+(p.y-cy)*scale});
-  return {scale,geometry,centers,project,labels:days.map(d=>{const p=project(centers.get(d));return {id:d,start:d,end:d,items:byDate.get(d),x:p.x,y:p.y,labelY:p.y+CELL*.43*scale,maxR:CELL*.45*scale}})};
+  return {scale,geometry,centers,project,labels:[...byDate.keys()].sort().map(d=>{const p=project(centers.get(d));return {id:d,start:d,end:d,inPeriod:d>=range.start&&d<=range.end,items:byDate.get(d),x:p.x,y:p.y,labelY:p.y+CELL*.43*scale,maxR:CELL*.45*scale}})};
 }
 export function expenseBubbles(groups,color,options,camera=periodCamera(groups,options)){
   return groups.flatMap(g=>g.items.map(t=>{

@@ -19,15 +19,15 @@ const merchantRules=read(keys.merchantRules,{});
 const categoryKey=t=>notes[t.id]?.category||(Object.hasOwn(categories,merchantRules?.[merchantKey(t.merchant)])?merchantRules[merchantKey(t.merchant)]:t.category),bubbleColor=paymentColor;
 const amount=n=>prefs.privacy?'••• €':euro(n),cat=t=>categories[categoryKey(t)]||categories.other,dateFmt=(d,opts)=>new Intl.DateTimeFormat('fr-FR',{...opts,timeZone:'Europe/Paris'}).format(new Date(d+'T12:00:00Z'));
 function title(){const {start,end}=bounds(selected,mode);if(mode==='day'){$('periodTitle').textContent=selected===today?"Aujourd'hui":dateFmt(selected,{weekday:'long'});$('periodSubtitle').textContent=dateFmt(selected,{day:'numeric',month:'long',year: 'numeric'})}else if(mode==='week'){$('periodTitle').textContent=start.slice(0,7)===end.slice(0,7)?`${Number(start.slice(-2))} – ${dateFmt(end,{day:'numeric',month:'short'})}`:`${dateFmt(start,{day:'numeric',month:'short'})} – ${dateFmt(end,{day:'numeric',month:'short'})}`;$('periodSubtitle').textContent='une semaine'}else{$('periodTitle').textContent=dateFmt(selected,{month:'long'});$('periodSubtitle').textContent=selected.slice(0,4)}$('datePicker').value=selected;$('backToday').hidden=bounds(today,mode).start===start;}
-function shortGroup(g){return mode==='week'?dateFmt(g.start,{weekday:'short',day:'numeric'}):String(Number(g.start.slice(-2)))}
+function shortGroup(g){if(!g.inPeriod)return dateFmt(g.start,{day:'numeric',month:'short'});return mode==='week'?dateFmt(g.start,{weekday:'short',day:'numeric'}):String(Number(g.start.slice(-2)))}
 const layoutWorker=new Worker(new URL('./layout-worker.js',import.meta.url),{type:'module'});
 let layoutRevision=0,warmTimer=0;
 layoutWorker.onmessage=({data:result})=>{
   if(result.id!==layoutRevision)return;
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
   groups=result.groups;$('groupLabels').replaceChildren();
-  if(mode!=='day')for(const g of groups){
-    const b=document.createElement('button');b.className='group-label camera-label'+(g.items.length?'':' empty-group');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.textContent=shortGroup(g);const total=document.createElement('small');total.className='day-spend';total.textContent=amount(sum(g.items));b.append(total);b.setAttribute('aria-label',`${shortGroup(g)}, ${amount(sum(g.items))}, ${g.items.length} dépenses. Ouvrir ce jour`);b.onclick=()=>drill(g);$('groupLabels').append(b);
+  for(const g of groups){if(mode==='day'&&g.inPeriod)continue;
+    const b=document.createElement('button');b.className='group-label camera-label'+(g.items.length?'':' empty-group')+(g.inPeriod?'':' context-day');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.textContent=shortGroup(g);const total=document.createElement('small');total.className='day-spend';total.textContent=amount(sum(g.items));b.append(total);b.setAttribute('aria-label',`${shortGroup(g)}, ${amount(sum(g.items))}, ${g.items.length} dépenses. Ouvrir ce jour`);b.onclick=()=>drill(g);$('groupLabels').append(b);
   }
   field.reconcile(result.specs.map(s=>({...s,amountText:amount(s.transaction.amountCents)})));
   if(prefs.motion){for(const b of field.bodies){b.x=b.tx;b.y=b.ty;b.r=b.targetR;b.alpha=b.targetAlpha;}field.bodies=field.bodies.filter(b=>!b.retired);}
