@@ -30,7 +30,7 @@ test('swiping on a bubble navigates, taps open days in both overviews, cancel do
  assert.equal(gestureAction({dx:100,dy:0,cancelled:true}),'none');
 });
 
-import {expenseBubbles} from '../dist/bubble-layout.js';
+import {expenseBubbles,periodCamera} from '../dist/bubble-layout.js';
 import {groupTransactions} from '../dist/periods.js';
 test('all periods retain every expense as its own clickable bubble, even beyond 240 expenses',()=>{
  const items=Array.from({length:350},(_,i)=>({id:'expense-'+i,date:'2026-10-08',amountCents:i+1,paymentKind:i%2?'card':'transfer'}));
@@ -59,4 +59,24 @@ test('overview bubbles are exactly a uniform zoom of each daily cluster',()=>{
    assert.ok(Math.abs((shared[i].ty-shared[0].ty)-(day[i].ty-day[0].ty)*scale)<1e-8);
   }
  }
+});
+
+test('daily and zoomed clusters have no overlapping circles, including every transition frame',()=>{
+ const items=Array.from({length:18},(_,i)=>({id:'contact-'+i,date:i<9?'2026-10-07':'2026-10-08',amountCents:(i+1)**2*110,paymentKind:'card'}));
+ const specs=mode=>expenseBubbles(groupTransactions(items,'2026-10-08',mode).groups,paymentColor,{mode,date:'2026-10-08',width:360,height:420});
+ const separated=bodies=>{for(let i=0;i<bodies.length;i++)for(let j=0;j<i;j++)assert.ok(Math.hypot(bodies[i].x-bodies[j].x,bodies[i].y-bodies[j].y)>=bodies[i].r+bodies[j].r-.01,`${bodies[i].id} overlaps ${bodies[j].id}`)};
+ for(const mode of ['day','week','month'])separated(specs(mode).map(s=>({...s,x:s.tx,y:s.ty,r:s.targetR})));
+ const field=new BubbleField();field.resize(360,420);
+ for(const mode of ['day','week','month','day']){
+  field.reconcile(specs(mode));
+  for(let frame=0;frame<180;frame++){field.step(1/60);separated(field.bodies.filter(b=>!b.retired&&b.alpha>.1));}
+ }
+});
+
+test('week fits a compact calendar grid with three columns',()=>{
+ const camera=periodCamera(groupTransactions([],'2026-10-08','week').groups,{mode:'week',date:'2026-10-08',width:360,height:420});
+ assert.equal(camera.labels.length,7);
+ assert.equal(new Set(camera.labels.map(g=>g.x)).size,3);
+ assert.equal(new Set(camera.labels.map(g=>g.y)).size,3);
+ assert.ok(camera.labels.every(g=>g.x>0&&g.x<360&&g.y>0&&g.y<420));
 });

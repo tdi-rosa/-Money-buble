@@ -1,4 +1,4 @@
-import {BubbleField} from './physics.js';
+import {BubbleField,resolveCollisions} from './physics.js';
 import {monday,bounds} from './periods.js';
 import {shiftDate} from './core.js';
 export const MIN_RADIUS=22;
@@ -37,6 +37,9 @@ function dayGeometry(items){
   const field=new BubbleField(),size=Math.max(CELL,Math.ceil(Math.sqrt(ordered.length)*60));field.resize(size,size);
   field.reconcile(ordered.map((t,i)=>{const a=i*2.3999632297,o=Math.sqrt(i+1)*8;return {id:t.id,tx:size/2+Math.cos(a)*o,ty:size/2+Math.sin(a)*o,targetR:radii[i]}}));
   for(let i=0;i<300;i++)field.step(1/60);
+  // Pack final radii exactly before freezing the geometry for every camera view.
+  for(const b of field.bodies){b.r=b.targetR;b.collisionGap=4;}
+  resolveCollisions(field.bodies,{iterations:512,tolerance:.0001});
   const geometry=new Map(field.bodies.map(b=>[b.id,{x:b.x-size/2,y:b.y-size/2,r:b.targetR}]));
   if(dayCache.size>120)dayCache.clear();dayCache.set(key,geometry);return geometry;
 }
@@ -46,7 +49,8 @@ export function periodCamera(groups,{mode='day',date=groups[0]?.start,width=400,
   const byDate=new Map(days.map(d=>[d,[]]));for(const g of groups)for(const t of g.items)byDate.get(t.date)?.push(t);
   const geometry=new Map([...byDate].map(([d,items])=>[d,dayGeometry(items)]));
   // The same calendar world is viewed through three camera frames.
-  const centers=new Map(days.map(d=>{const index=Math.round((new Date(d+'T12:00:00Z')-new Date(start+'T12:00:00Z'))/86400000);return [d,{x:(index%7)*CELL,y:Math.floor(index/7)*CELL}]}));
+  const columns=mode==='week'?3:7;
+  const centers=new Map(days.map(d=>{const index=Math.round((new Date(d+'T12:00:00Z')-new Date(start+'T12:00:00Z'))/86400000);return [d,{x:(index%columns)*CELL,y:Math.floor(index/columns)*CELL}]}));
   const points=[...centers.values()];
   const edges=days.flatMap(d=>{const c=centers.get(d);return [...geometry.get(d).values()].map(b=>({left:c.x+b.x-b.r,right:c.x+b.x+b.r,top:c.y+b.y-b.r,bottom:c.y+b.y+b.r}))});
   const minX=Math.min(...points.map(p=>p.x-CELL/2),...edges.map(p=>p.left)),maxX=Math.max(...points.map(p=>p.x+CELL/2),...edges.map(p=>p.right)),minY=Math.min(...points.map(p=>p.y-CELL/2),...edges.map(p=>p.top)),maxY=Math.max(...points.map(p=>p.y+CELL/2),...edges.map(p=>p.bottom));
@@ -59,6 +63,6 @@ export function expenseBubbles(groups,color,options){
   const camera=periodCamera(groups,options);
   return groups.flatMap(g=>g.items.map(t=>{
     const local=camera.geometry.get(t.date).get(t.id),center=camera.centers.get(t.date),p=camera.project({x:center.x+local.x,y:center.y+local.y});
-    return {id:t.id,tx:p.x,ty:p.y,spawnX:p.x,spawnY:p.y,targetR:local.r*camera.scale,groupId:t.date,transaction:t,color:color(t),layoutLocked:true};
+    return {id:t.id,tx:p.x,ty:p.y,spawnX:p.x,spawnY:p.y,targetR:local.r*camera.scale,groupId:t.date,transaction:t,color:color(t),collisionGap:4*camera.scale,layoutLocked:true};
   }));
 }
