@@ -1,3 +1,9 @@
+## 0.7.8
+
+- Partage une seule échelle monétaire entre les deux amas pendant le swipe et sa fin animée ; recadre ensuite la période affichée.
+- Mémorise les positions physiques par période pour retrouver le même agencement après un aller-retour, y compris après un regroupement semaine → mois.
+- Les aperçus utilisent ces positions mémorisées ; les sauvegardes sont invalidées si les données ou la taille de la vue changent.
+
 ## 0.7.7
 
 - Ignore les réponses du worker appartenant à l’amas précédent ou à une simulation suspendue après un swipe.

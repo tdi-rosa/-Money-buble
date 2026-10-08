@@ -1,3 +1,4 @@
+import {CloudHistory,cloudCenter,projectCloud,rescaleScreenCloud} from './cloud-navigation.js';
 import {ownsSimulationFrame,targetCloudRadius,projectCameraPoint,reprojectDeparture} from './simulation-state.js';
 import {FluidGauge} from './fluid-gauge.js';
 import {hitRenderedBubbles} from './bubble-layout.js';
@@ -24,8 +25,8 @@ const categoryKey=t=>notes[t.id]?.category||(Object.hasOwn(categories,merchantRu
 const amount=n=>prefs.privacy?'••• €':euro(n),cat=t=>categories[categoryKey(t)]||categories.other,dateFmt=(d,opts)=>new Intl.DateTimeFormat('fr-FR',{...opts,timeZone:'Europe/Paris'}).format(new Date(d+'T12:00:00Z'));
 function title(){const {start,end}=bounds(selected,mode);if(mode==='day'){$('periodTitle').textContent=selected===today?"Aujourd'hui":dateFmt(selected,{weekday:'long'});$('periodSubtitle').textContent=dateFmt(selected,{day:'numeric',month:'long',year: 'numeric'})}else if(mode==='week'){$('periodTitle').textContent=start.slice(0,7)===end.slice(0,7)?`${Number(start.slice(-2))} – ${dateFmt(end,{day:'numeric',month:'short'})}`:`${dateFmt(start,{day:'numeric',month:'short'})} – ${dateFmt(end,{day:'numeric',month:'short'})}`;$('periodSubtitle').textContent='une semaine'}else{$('periodTitle').textContent=dateFmt(selected,{month:'long'});$('periodSubtitle').textContent=selected.slice(0,4)}$('datePicker').value=selected;$('backToday').hidden=bounds(today,mode).start===start;}
 const layoutWorker=new Worker(new URL('./layout-worker.js',import.meta.url),{type:'module'});
-let layoutRevision=0,pendingNavigation=null,layoutPayload=null,lastLayoutData=null,lastLayoutSize='',transactionsById=new Map(),levelFit={day:1,week:.5,month:.25};
-const previews=new Map(),layouts=new Map(),bodyPool=new Map();
+let layoutRevision=0,pendingNavigation=null,layoutPayload=null,lastLayoutData=null,lastLayoutSize='',transactionsById=new Map(),physicalPeriod=null,levelFit={day:1,week:.5,month:.25};
+const previews=new Map(),layouts=new Map(),bodyPool=new Map(),cloudHistory=new CloudHistory();
 const simulationWorker=new Worker(new URL('./simulation-worker.js',import.meta.url),{type:'module'});
 let simulationRevision=0,simulationBodies=null,simulationPositions=null,simulationArrivals=null,simulationCamera=null,simulationRunning=false;
 simulationWorker.onmessage=({data:result})=>{if(ownsSimulationFrame(result,simulationRevision,simulationBodies,field.bodies,simulationRunning)){simulationPositions=result.positions;simulationCamera=result.camera;simulationArrivals=result.arrivals;field.time=result.time??field.time;field.regroupUntil=result.regroupUntil??field.regroupUntil;wake();}};
@@ -45,24 +46,39 @@ function pauseSimulation(){if(simulationRunning){simulationWorker.postMessage({r
 function receiveLayout(result){
   if(result.id!==layoutRevision)return;
   if(!result.error)result.specs=result.specs.map(s=>({...s,transaction:transactionsById.get(s.id)||s.transaction,color:bubbleColor(transactionsById.get(s.id)||s.transaction)}));
-  if(result.preview){if(!result.error){layouts.set(result.preview,result);if(result.preview.startsWith(mode+':'))previews.set(result.preview.slice(mode.length+1),makePreview(result));}if(dragScene)wake();return;}
+  if(result.preview){if(!result.error){layouts.set(result.preview,result);if(result.preview.startsWith(mode+':'))previews.set(result.preview.slice(mode.length+1),makePreview(result,result.preview));}if(dragScene)wake();return;}
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
   levelFit=result.fitByMode||levelFit;layouts.set(mode+':'+selected,result);
   const navigation=pendingNavigation,gatherRadius=targetCloudRadius(result.specs,w,h);pendingNavigation=null;
-  if(navigation||prefs.motion){field.bodies=result.specs.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,phase:i*2.3999632297,retired:false,gatheringUntil:0,gatherRadius,departureView:null,arriving:false,departing:false,travelSpeed:450,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;field.regroupUntil=0;join=null;if(navigation)slide={...navigation,progress:0};}
+  if(navigation||prefs.motion){
+    const restored=cloudHistory.restore(mode,selected,result.specs);
+    field.bodies=restored.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{motionX:s.tx,motionY:s.ty,phase:i*2.3999632297,retired:false,gatheringUntil:0,gatherRadius,departureView:null,arriving:s.arriving??false,departing:false,travelSpeed:450,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});
+    fitTarget=result.fitZoom;field.regroupUntil=0;join=null;
+    const center=cloudCenter(field.bodies,w,h);cameraX=center.x;cameraY=center.y;
+    fitZoom=navigation?.fromScale??result.fitZoom;
+    if(navigation)slide={...navigation,sharedScale:Math.min(navigation.fromScale,result.fitZoom),progress:0};
+  }
   else beginJoin(result,gatherRadius);
+  physicalPeriod={mode,date:selected};
   if(layoutPayload){
     const requests=[{mode,date:navigate(selected,mode,-1)},{mode,date:navigate(selected,mode,1)},...modes.filter(m=>m!==mode).map(mode=>({mode,date:selected}))];
-    for(const options of requests){const key=options.mode+':'+options.date;if(layouts.has(key)){if(options.mode===mode)previews.set(options.date,makePreview(layouts.get(key)));continue;}layoutWorker.postMessage({id:layoutRevision,preview:key,options:{...layoutPayload.options,...options}});}
+    for(const options of requests){const key=options.mode+':'+options.date;if(layouts.has(key)){if(options.mode===mode)previews.set(options.date,makePreview(layouts.get(key),key));continue;}layoutWorker.postMessage({id:layoutRevision,preview:key,options:{...layoutPayload.options,...options}});}
   }wake();
 }
-function makePreview(result){return {fitZoom:result.fitZoom,specs:result.specs,bodies:result.specs.map(b=>({...b,x:w/2+(b.tx-w/2)*result.fitZoom,y:h/2+(b.ty-h/2)*result.fitZoom,r:b.targetR*result.fitZoom,alpha:1,amountText:amount(b.transaction.amountCents)}))};}
+function makePreview(result,key){
+  const previewMode=key.slice(0,key.indexOf(':')),date=key.slice(key.indexOf(':')+1),world=cloudHistory.restore(previewMode,date,result.specs);
+  for(const b of world)b.amountText=amount(b.transaction.amountCents);
+  return {fitZoom:result.fitZoom,specs:result.specs,world,center:cloudCenter(world,w,h)};
+}
+function previewAt(preview,scale){return projectCloud(preview.world,{scale,width:w,height:h,centerX:preview.center.x,centerY:preview.center.y});}
+function rememberCloud(){if(physicalPeriod)cloudHistory.save(physicalPeriod.mode,physicalPeriod.date,field.bodies);}
+
 layoutWorker.onmessage=({data:result})=>receiveLayout(result);
 layoutWorker.onerror=()=>toast('Le calcul des bulles n’a pas pu démarrer. Réouvre l’application.');
 function refresh(){previews.clear();title();const displayed=displayPurchaseDates(data),undated=displayed.filter(t=>!validDate(t.date));$('undatedButton').hidden=!undated.length;$('undatedButton').textContent=undated.length+' achat'+(undated.length>1?'s':'')+' sans date d’achat';scene=groupTransactions(displayed,selected,mode);stage.style.minHeight='240px';$('spent').textContent=bankActive&&!scene.visible.length?'—':amount(sum(scene.visible));$('spentButton').setAttribute('aria-label',`${bankActive&&!scene.visible.length?'Aucun achat daté pour cette période':prefs.privacy?'Montant masqué':euro(sum(scene.visible))}. ${scene.visible.length} dépenses. Ouvrir la liste`);$('pendingBadge').hidden=!scene.visible.some(t=>t.status==='pending');$('estimatedBadge').hidden=!scene.visible.some(t=>t.dateBasis==='estimated');$('empty').hidden=scene.visible.length!==0;$('empty').querySelector('p').textContent=bankActive?(undated.length?'La banque n’a pas fourni la date de certains achats.':'Aucune opération reçue. Les paiements peuvent arriver plus tard.'):"Rien ici, pour l’instant.";$('sourceBadge').textContent=bankActive?(bankFresh?'BNP':'BNP · dernière synchro'):demo?'démo':'local';$('groupLabels').replaceChildren();
   transactionsById=new Map(displayed.map(t=>[t.id,t]));
   const size=w+':'+h,changed=lastLayoutData!==data||lastLayoutSize!==size;
-  if(changed){layouts.clear();lastLayoutData=data;lastLayoutSize=size;}
+  if(changed){layouts.clear();cloudHistory.clear();lastLayoutData=data;lastLayoutSize=size;}
   layoutPayload={id:++layoutRevision,options:{mode,date:selected,width:w,height:h}};
   const cached=layouts.get(mode+':'+selected);
   if(cached&&!changed)receiveLayout({...cached,id:layoutRevision,preview:undefined});
@@ -70,18 +86,17 @@ function refresh(){previews.clear();title();const displayed=displayPurchaseDates
   updateWallet();syncPrefs();wake();
 }
 const modes=['day','week','month'],gestures=new GestureSession();
-let join=null,fitZoom=1,fitTarget=1,slide=null,dragScene=null,swipeOffset=0,returningSwipe=false,pan=0,panTarget=0,panY=0,panYTarget=0,zoom=1,zoomTarget=1,pinch=null,cameraSettlingUntil=0,cameraX=w/2,cameraY=h/2;
+let join=null,fitZoom=1,fitTarget=1,slide=null,dragScene=null,swipeOffset=0,returningSwipe=false,swipeScale=1,swipeSourceScale=1,pan=0,panTarget=0,panY=0,panYTarget=0,zoom=1,zoomTarget=1,pinch=null,cameraSettlingUntil=0,cameraX=w/2,cameraY=h/2;
 let renderedRegions=[],bubbleDrag=null;
 function releaseBubble(){field.dragId=null;field.dragTarget=null;bubbleDrag=null;}
 function view(){return {mode,width:w,height:h,zoom:zoomTarget,pan:panTarget+(w/2-cameraX)*zoom*fitZoom,panY:panYTarget+(h/2-cameraY)*zoom*fitZoom};}
 function inputState(){pointer=gestures.pointer;pinch=gestures.pinch;}
 function paintedHit(e){return hitRenderedBubbles(renderedRegions,e,canvas.getBoundingClientRect(),canvas)}
 function screenSnapshot(){
-  if(dragScene)return dragScene.map(b=>({...b,x:b.x+swipeOffset}));
+  if(dragScene)return rescaleScreenCloud(dragScene,swipeSourceScale,swipeScale,w,h).map(b=>({...b,x:b.x+swipeOffset}));
   if(pendingNavigation)return pendingNavigation.bodies.map(b=>({...b}));
-  const circles=new Map(),ratio=canvas.width/w;
-  for(const r of renderedRegions)circles.set(r.body.id,{...r.body,x:r.x/ratio,y:r.y/(canvas.height/h),r:r.r/ratio,alpha:1});
-  return [...circles.values()];
+  const offset=slide?(slide.startOffset??slide.direction*w)*Math.pow(1-slide.progress,3):0;
+  return projectCloud(field.bodies.filter(b=>b.inPeriod!==false),{scale:zoom*fitZoom,width:w,height:h,centerX:cameraX,centerY:cameraY,panX:pan+offset,panY});
 }
 function beginJoin(result,gatherRadius){
   const previousActive=field.bodies.filter(b=>b.inPeriod!==false).length,previous=new Map(field.bodies.map(b=>[b.id,b])),active=new Set(result.specs.map(s=>s.id)),leaving=[];
@@ -107,7 +122,7 @@ function adoptScreen(){
   releaseBubble();join=null;slide=pendingNavigation=dragScene=null;swipeOffset=0;returningSwipe=false;
 }
 function changeMode(m,{fromPinch=false}={}){
-  if(mode===m)return;adoptScreen();mode=m;
+  if(mode===m)return;rememberCloud();adoptScreen();mode=m;
   fitZoom*=zoom;zoom=zoomTarget=1;panTarget=panYTarget=0;cameraSettlingUntil=performance.now()+220;
   if(!fromPinch){gestures.reset();inputState();}
   animateHeader();for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-pressed',b.dataset.mode===m?'true':'false');
@@ -117,8 +132,8 @@ $('recenter').onclick=()=>{panTarget=panYTarget=0;zoomTarget=1;cameraSettlingUnt
 function animateHeader(){if(prefs.motion)return;for(const id of ['dateButton','spentButton']){const el=$(id);for(const a of el.getAnimations())a.cancel();el.animate([{opacity:.65},{opacity:1}],{duration:180,easing:'ease-out'});}}
 function goTo(date,direction=1){
   if(date===selected)return;
-  const bodies=screenSnapshot(),preview=previews.get(date),startOffset=direction*w+(dragScene?swipeOffset:0);slide=null;dragScene=null;swipeOffset=0;returningSwipe=false;
-  pendingNavigation=prefs.motion?null:{bodies,direction,startOffset,incoming:preview?.bodies};
+  rememberCloud();const fromScale=dragScene?swipeScale:zoom*fitZoom,bodies=screenSnapshot(),preview=previews.get(date),startOffset=direction*w+(dragScene?swipeOffset:0);slide=null;dragScene=null;swipeOffset=0;returningSwipe=false;
+  pendingNavigation=prefs.motion?null:{bodies,direction,startOffset,fromScale,incoming:preview?previewAt(preview,fromScale):null};
   selected=date;pan=panTarget=panY=panYTarget=0;zoom=zoomTarget=1;cameraX=w/2;cameraY=h/2;
   refresh();animateHeader();haptic();dismissHint();
 }
@@ -140,16 +155,17 @@ function paintBodies(bodies,{offset=0,screen=false}={}){
 }
 function draw(){
   renderedRegions=[];ctx.clearRect(0,0,w,h);
-  if(dragScene){paintBodies(dragScene,{offset:swipeOffset,screen:true});const direction=swipeOffset<0?1:-1,preview=previews.get(navigate(selected,mode,direction));if(preview)paintBodies(preview.bodies,{offset:direction*w+swipeOffset,screen:true});$('empty').style.transform=`translateX(${swipeOffset}px)`;return;}
+  if(dragScene){paintBodies(rescaleScreenCloud(dragScene,swipeSourceScale,swipeScale,w,h),{offset:swipeOffset,screen:true});const direction=swipeOffset<0?1:-1,preview=previews.get(navigate(selected,mode,direction));if(preview)paintBodies(previewAt(preview,swipeScale),{offset:direction*w+swipeOffset,screen:true});$('empty').style.transform=`translateX(${swipeOffset}px)`;return;}
   if(pendingNavigation){paintBodies(pendingNavigation.bodies,{screen:true});if(pendingNavigation.incoming)paintBodies(pendingNavigation.incoming,{offset:pendingNavigation.startOffset,screen:true});return;}
   let offset=0;
-  if(slide){const e=1-Math.pow(1-slide.progress,3);offset=(slide.startOffset??slide.direction*w)*(1-e);paintBodies(slide.bodies,{offset:-(slide.startOffset??slide.direction*w)*e,screen:true});}
+  if(slide){const e=1-Math.pow(1-slide.progress,3);offset=(slide.startOffset??slide.direction*w)*(1-e);paintBodies(rescaleScreenCloud(slide.bodies,slide.fromScale,fitZoom,w,h),{offset:-(slide.startOffset??slide.direction*w)*e,screen:true});}
   paintBodies(field.bodies,{offset});$('empty').style.transform=`translateX(${offset+pan}px)`;
 }
 function frame(timestamp){
   raf=0;if(document.hidden)return;const elapsed=last?Math.min(.05,(timestamp-last)/1000):1/60;last=timestamp;
-  if(returningSwipe){swipeOffset*=Math.exp(-25*elapsed);if(Math.abs(swipeOffset)<.1){swipeOffset=0;adoptScreen();refresh();}}
-  if(slide){slide.progress=Math.min(1,slide.progress+elapsed/.28);if(slide.progress===1)slide=null;}
+  if(returningSwipe){swipeOffset*=Math.exp(-25*elapsed);if(Math.abs(swipeOffset)<.1){swipeOffset=0;fitZoom=swipeScale/zoom;adoptScreen();refresh();}}
+  if(dragScene){const direction=swipeOffset<0?1:-1,preview=previews.get(navigate(selected,mode,direction)),target=Math.min(swipeSourceScale,preview?.fitZoom??swipeSourceScale);swipeScale+=(target-swipeScale)*(1-Math.exp(-24*elapsed));}
+  if(slide){slide.progress=Math.min(1,slide.progress+elapsed/.28);const t=1-Math.pow(1-slide.progress,3);fitZoom=slide.fromScale+(slide.sharedScale-slide.fromScale)*t;if(slide.progress===1)slide=null;}
   const direct=(pointer||pinch)&&timestamp>=cameraSettlingUntil,ease=prefs.motion||direct?1:1-Math.exp(-24*elapsed);
   pan+=(panTarget-pan)*ease;panY+=(panYTarget-panY)*ease;zoom+=(zoomTarget-zoom)*ease;
   if(join&&!dragScene&&!pendingNavigation){
@@ -175,7 +191,7 @@ function frame(timestamp){
   if(!join){const active=field.bodies.filter(b=>b.inPeriod||Math.abs(b.x-cameraX)*scale<w/2+b.r*scale&&Math.abs(b.y-cameraY)*scale<h/2+b.r*scale);if(active.length!==field.bodies.length)field.bodies=active;}
 
   draw();$('recenter').hidden=Math.abs(zoomTarget-1)<=.04&&Math.abs(panTarget)<2&&Math.abs(panYTarget)<2;
-  if(physical||returningSwipe||slide||(join&&!dragScene&&!pendingNavigation)||Math.abs(pan-panTarget)>.05||Math.abs(panY-panYTarget)>.05||Math.abs(zoom-zoomTarget)>.001)raf=requestAnimationFrame(frame);
+  if(physical||dragScene||returningSwipe||slide||(join&&!dragScene&&!pendingNavigation)||Math.abs(pan-panTarget)>.05||Math.abs(panY-panYTarget)>.05||Math.abs(zoom-zoomTarget)>.001)raf=requestAnimationFrame(frame);
 }
 function wake(){if(!raf&&!document.hidden){last=0;raf=requestAnimationFrame(frame)}}
 function resize(){const r=stage.getBoundingClientRect(),oldW=w,oldH=h;if(canvas.width&&Math.abs(w-r.width)<.5&&Math.abs(h-r.height)<.5)return;
@@ -194,7 +210,7 @@ canvas.addEventListener('pointerdown',e=>{
 canvas.addEventListener('pointermove',e=>{
   const result=gestures.move(e.pointerId,point(e),e.timeStamp,view());inputState();if(!result)return;
   if(result.type==='swipe'){
-    if(!dragScene){const snapshot=screenSnapshot();adoptScreen();dragScene=snapshot;}returningSwipe=false;
+    if(!dragScene){rememberCloud();const snapshot=screenSnapshot(),scale=zoom*fitZoom;adoptScreen();dragScene=snapshot;swipeScale=swipeSourceScale=scale;}returningSwipe=false;
     swipeOffset=result.dx;dismissHint();
   }else if(result.type==='pan'){pan=panTarget=result.pan-(w/2-cameraX)*zoom*fitZoom;panY=panYTarget=result.panY-(h/2-cameraY)*zoom*fitZoom;dismissHint();}
   else if(result.type==='pinch'){
