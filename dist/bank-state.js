@@ -1,3 +1,4 @@
+import {validateCashflow} from './wallet.js';
 import {validateImport} from './core.js';
 // A device-local snapshot is display data, never an authorization credential.
 export function bankSnapshot(input,now=Date.now()){
@@ -7,6 +8,6 @@ export function bankSnapshot(input,now=Date.now()){
     const balance=input.balance===null?null:input.balance;
     if(balance!==null&&(!balance||!Number.isSafeInteger(balance.amount)||Math.abs(balance.amount)>100000000||typeof balance.available!=='boolean'))return null;
     if(typeof input.accountId!=='string'||input.accountId.length>160)return null;
-    return {version:1,transactions,balance:balance?{amount:balance.amount,available:balance.available,type:String(balance.type||'').slice(0,8),asOf:balance.asOf||null}:null,accountId:input.accountId,updatedAt:input.updatedAt};
+    return {version:1,transactions,...(input.cashflow!==undefined?{cashflow:validateCashflow(input.cashflow)}:{}),balance:balance?{amount:balance.amount,available:balance.available,type:String(balance.type||'').slice(0,8),asOf:balance.asOf||null}:null,accountId:input.accountId,updatedAt:input.updatedAt};
   }catch{return null}
 }

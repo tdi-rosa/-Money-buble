@@ -15,7 +15,7 @@ test('month circles form one connected compact cloud instead of nested fractal i
 });
 test('the same amount scale survives different days, weeks and months',()=>{
  const rows=[{id:'large',date:'2026-09-05',amountCents:100000},{id:'small',date:'2026-10-08',amountCents:9000}],c=new ClusterCatalog(rows);
- for(const mode of ['day','week','month']){const a=c.layout({...options,mode,date:'2026-09-05'}),b=c.layout({...options,mode,date:'2026-10-08'});assert.equal(a.fitZoom,b.fitZoom);assert.ok(Math.abs(a.specs[0].targetR**2/b.specs[0].targetR**2-1000/90)<1e-9);}
+ for(const mode of ['day','week','month']){const a=c.layout({...options,mode,date:'2026-09-05'}),b=c.layout({...options,mode,date:'2026-10-08'});assert.ok(Math.abs(a.specs[0].targetR**2/b.specs[0].targetR**2-1000/90)<1e-9);}
 });
 test('live period expansion moves circles through contacts instead of teleporting or locking positions',()=>{
  const c=new ClusterCatalog(items),f=new BubbleField();

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,verify} from 'node:crypto';
-import {seal,unseal,jwt,guard,mapTransactions,selectBalance,decimalCents,same,session,ORIGIN,api} from '../server/bank.js';
+import {seal,unseal,jwt,guard,mapCashflow,mapTransactions,selectBalance,decimalCents,same,session,ORIGIN,api} from '../server/bank.js';
 const keys=generateKeyPairSync('rsa',{modulusLength:2048});
 process.env.ENABLE_BANKING_PRIVATE_KEY=keys.privateKey.export({type:'pkcs8',format:'pem'});
 test('bank cookies are encrypted, authenticated, expire and are purpose bound',()=>{const v={sid:'secret-session',accounts:[{uid:'abc'}],exp:Date.now()/1000+60};const token=seal(v,'bank-session');assert.deepEqual(unseal(token,'bank-session'),v);assert.equal(token.includes('secret-session'),false);assert.equal(unseal(token,'bank-connect'),null);const raw=Buffer.from(token,'base64url');raw[raw.length-1]^=1;assert.equal(unseal(raw.toString('base64url'),'bank-session'),null);assert.equal(unseal(seal({...v,exp:1},'bank-session'),'bank-session'),null);assert.throws(()=>session({headers:{}}),/reconnect/)});
@@ -20,7 +20,7 @@ test('end-to-end mock: authorization, state binding, account access, sync and re
  if(path==='/auth'){const body=JSON.parse(options.body);authState=body.state;assert.equal(body.redirect_url,ORIGIN+'/api/bank/callback');assert.equal(body.psu_type,'personal');assert.equal(body.access.balances,true);assert.equal(body.access.transactions,true);return response({url:'https://auth.enablebanking.com/ais/start?sessionid=mock'});}
  if(path==='/sessions')return response({session_id:'mock-session',accounts:[{uid:'authorized',currency:'XXX',usage:'PRIVATE',name:'Compte courant',cash_account_type:'CACC',identification_hash:'stable'}],access:{valid_until:new Date(Date.now()+86400000).toISOString()}});
  if(options.method==='DELETE'){assert.equal(path,'/sessions/mock-session');revoked=true;return response({})}
- if(path==='/accounts/authorized/transactions'){assert.equal(new URL(url).searchParams.has('transaction_status'),false);return response({transactions:[{status:'BOOK',credit_debit_indicator:'DBIT',booking_date:'2026-10-07',transaction_amount:{amount:'12.80',currency:'EUR'},creditor:{name:'Marché'},entry_reference:'unique'}],continuation_key:null});}
+ if(path==='/accounts/authorized/transactions'){assert.equal(new URL(url).searchParams.has('transaction_status'),false);return response({transactions:[{status:'BOOK',credit_debit_indicator:'DBIT',booking_date:'2026-10-07',transaction_amount:{amount:'12.80',currency:'EUR'},creditor:{name:'Marché'},entry_reference:'unique'},{status:'BOOK',credit_debit_indicator:'CRDT',booking_date:'2026-10-01',transaction_amount:{amount:'2000.00',currency:'EUR'},debtor:{name:'Salaire'},entry_reference:'salary'}],continuation_key:null});}
  if(path==='/accounts/authorized/balances')return response({balances:[{balance_type:'ITAV',balance_amount:{amount:'842.30',currency:'EUR'}}]});
  throw Error('Unexpected API path');};
  const makeRes=()=>({headers:{},statusCode:200,setHeader(k,v){this.headers[k]=v},getHeader(k){return this.headers[k]},status(n){this.statusCode=n;return this},json(x){this.body=x},redirect(n,url){this.statusCode=n;this.location=url}});
@@ -29,9 +29,16 @@ test('end-to-end mock: authorization, state binding, account access, sync and re
  const bad=makeRes();await callback({...req('GET',undefined,connectCookie),url:'/api/bank/callback?code=mock&state=wrong'},bad);assert.ok(bad.location.endsWith('bank=state'));assert.equal(calls,3);
  const cb=makeRes();await callback({...req('GET',undefined,connectCookie),url:'/api/bank/callback?code=mock&state='+authState},cb);assert.equal(cb.location,ORIGIN+'/bank-return.html?bank=connected');const bankCookie=cb.headers['Set-Cookie'].find(x=>x.startsWith('__Host-mb-bank=')).split(';')[0];
  const denied=makeRes(),count=calls;await sync(req('POST',{accountId:'not-authorized'},bankCookie),denied);assert.equal(denied.statusCode,403);assert.equal(calls,count);
- const ok=makeRes();await sync(req('POST',{accountId:'authorized'},bankCookie),ok);assert.equal(ok.body.transactions[0].amountCents,1280);assert.equal(ok.body.balance.amount,84230);assert.equal(ok.headers['Cache-Control'],'no-store');
+ const ok=makeRes();await sync(req('POST',{accountId:'authorized'},bankCookie),ok);assert.equal(ok.body.transactions[0].amountCents,1280);assert.equal(ok.body.balance.amount,84230);assert.equal(ok.body.transactions.length,1);assert.deepEqual(ok.body.cashflow.map(f=>f.amountCents).sort((a,b)=>a-b),[-1280,200000]);assert.equal(ok.headers['Cache-Control'],'no-store');
  const done=makeRes();await disconnect(req('POST',{},bankCookie),done);assert.ok(revoked);assert.ok(done.headers['Set-Cookie'][0].includes('Max-Age=0'));
  }finally{global.fetch=previous}
 });
 
 test('expired or revoked bank consent requests reconnection rather than a new private key',async()=>{for(const error of ['EXPIRED_SESSION','REVOKED_SESSION','CLOSED_SESSION','SESSION_DOES_NOT_EXIST'])await assert.rejects(api('/sessions/mock',{fetcher:async()=>({ok:false,status:401,json:async()=>({error})})}),e=>e.code==='reconnect')});
+
+ test('cashflow uses accounting dates, signs credits, and deduplicates pending entries only by reference',()=>{
+ const expense={status:'BOOK',credit_debit_indicator:'DBIT',booking_date:'2026-10-08',transaction_date:'2026-10-07',transaction_amount:{currency:'EUR',amount:'39.00'},entry_reference:'a'};
+ const income={...expense,credit_debit_indicator:'CRDT',entry_reference:'b',transaction_amount:{currency:'EUR',amount:'2000.00'}};
+ const flows=mapCashflow([{...expense,status:'PDNG'},expense,income,{...expense,transaction_amount:{currency:'USD',amount:'1'}},{...income,booking_date:'2026-02-30'}],'account');
+ assert.equal(flows.length,2);assert.equal(flows[0].date,'2026-10-08');assert.equal(flows[0].amountCents,-3900);assert.equal(flows[1].amountCents,200000);assert.equal(flows[0].status,'booked');assert.equal(mapCashflow([{...expense,entry_reference:null},{...expense,entry_reference:null}],'account').length,2);
+ });

@@ -1,3 +1,11 @@
+## 0.7.4
+
+- Retire le déplacement individuel au doigt, en conservant les gestes de navigation et le toucher des dépenses.
+- Resserre le cadrage sur l’enveloppe réelle de l’amas et harmonise la vitesse d’arrivée et de départ à l’écran.
+- Déporte la simulation dès 60 bulles, sans retirer la physique ni les collisions.
+- Réservoir plus épais, animé, calculé à partir du principal apport ; les petites entrées modifient son niveau.
+- Synchronise débits et crédits pour reconstruire le solde en fin de période ; distingue les estimations historiques et l’historique indisponible.
+
 ## 0.7.3
 
 - Supprime les amas imbriqués par jour/semaine : toutes les dépenses se réunissent en un seul amas compact.

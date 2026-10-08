@@ -35,3 +35,11 @@ test('organic physics continues moving at rest and respects reduced motion',()=>
  assert.ok(Math.hypot(f.bodies[0].x-from.x,f.bodies[0].y-from.y)>2,'resting bubbles visibly drift instead of freezing');assert.equal(f.bodies[0].r,25);
  for(let i=0;i<400;i++)f.stepLive(1/60,{organic:false});assert.ok(f.settled);
 });
+
+test('arrival and departure share a screen speed limit while the camera zoom changes',()=>{
+ for(const scale of [.2,1,5])for(const departing of [false,true]){
+ const f=new BubbleField();f.bodies=[{id:'a',x:departing?0:10000,y:0,tx:0,ty:0,motionX:departing?10000:0,motionY:0,r:10,targetR:10,alpha:1,inPeriod:!departing,departing,travelSpeed:450}];
+ for(let i=0;i<120;i++){const x=f.bodies[0].x;f.stepLive(1/120,{pixelScale:scale});assert.ok(Math.abs(f.bodies[0].x-x)*scale<=450/120+1e-8);}
+ assert.equal(f.bodies[0].alpha,1);assert.equal(f.bodies[0].r,10);
+ }
+});

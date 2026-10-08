@@ -14,9 +14,9 @@ export class ClusterCatalog {
   }
   camera({mode='day',date=this.items[0]?.date,width=400,height=400}={}){
     const root=this.root(date,mode),usableX=Math.max(1,width-40)/2,usableY=Math.max(1,height-48)/2;
-    // A common monetary unit caps magnification: a 90€ day cannot become a 1000€ circle.
+    // World radii share one monetary unit; the camera crops each physical cloud.
     const scale=Math.max(.000001,Math.min(usableX,usableY)*.88/Math.sqrt(this.largest));
-    const fit=r=>Math.min(1,usableX/(r.x*scale+6),usableY/(r.y*scale+6));
+    const fit=r=>Math.min(6,usableX/(r.x*scale+6),usableY/(r.y*scale+6));
     const fitByMode=Object.fromEntries(['day','week','month'].map(m=>[m,fit(this.root(date,m))]));
     return {catalog:this,options:{mode,date,width,height},root,range:root.range,width,height,scale,fitZoom:fit(root),fitByMode,labels:[]};
   }
