@@ -1,4 +1,22 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {bubbleRadii,gestureAction} from '../dist/bubble-layout.js';
+import {scenePoint} from '../dist/bubble-layout.js';
+import {paymentColor,overviewPaymentKind} from '../dist/core.js';
+import {BubbleField} from '../dist/physics.js';
+test('payment colors do not depend on category; a mixed day does not invent a payment type',()=>{
+ assert.equal(paymentColor({paymentKind:'card',category:'food'}),paymentColor({paymentKind:'card',category:'shopping'}));
+ assert.notEqual(paymentColor({paymentKind:'card'}),paymentColor({paymentKind:'transfer'}));
+ assert.equal(overviewPaymentKind([{paymentKind:'card'},{paymentKind:'transfer'}]),'unknown');
+});
+test('the top of a bubble remains clickable with canvas scaling and zoom',()=>{
+ const f=new BubbleField();f.reconcile([{id:'upper',tx:100,ty:50,targetR:22,spawnX:100,spawnY:50}]);for(let i=0;i<240;i++)f.step(1/60);
+ const rect={left:24,top:280,width:300,height:360},view={width:400,height:240,zoom:.8,pan:15};
+ // Rendered x = center + zoom*(x-center) + pan; rendered y likewise.
+ const clientX=24+(200+.8*(100-200)+15)*300/400;
+ const clientY=280+(120+.8*(30-120))*360/240;
+ const p=scenePoint({clientX,clientY},rect,view);
+ assert.ok(Math.abs(p.x-100)<1e-8);assert.ok(Math.abs(p.y-30)<1e-8);
+ assert.equal(f.hit(p.x,p.y)?.id,'upper');
+});
 test('tiny and large expenses keep 44px targets and bounded, proportional extra area',()=>{
  const values=[1,100,10000,1000000],r=bubbleRadii(values,{budget:12000,maxRadius:80});
  assert.ok(r.every(x=>Number.isFinite(x)&&x>=22&&x<=80));assert.ok(r.every((x,i)=>!i||x>=r[i-1]));

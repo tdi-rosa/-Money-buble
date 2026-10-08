@@ -1,4 +1,10 @@
 export const MIN_RADIUS=22;
+// Convert the rendered canvas to simulation coordinates, including its current transform.
+export function scenePoint({clientX,clientY},rect,{width,height,zoom=1,pan=0}){
+  const x=(clientX-rect.left)*width/Math.max(1,rect.width),y=(clientY-rect.top)*height/Math.max(1,rect.height);
+  const scale=Math.max(.01,zoom);
+  return {x:(x-width/2-pan)/scale+width/2,y:(y-height/2)/scale+height/2};
+}
 // A 44px touch floor plus proportional area: r² = 22² + scale × cents.
 // Saturation bounds the largest bubble; every visible bubble retains its touch floor.
 export function bubbleRadii(values,{budget,maxRadius=90}={}){

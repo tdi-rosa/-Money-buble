@@ -1,5 +1,7 @@
 export const categories={food:{name:'Alimentation',color:'#047857',emoji:'🥑'},out:{name:'Sorties & cafés',color:'#c2410c',emoji:'☕'},transport:{name:'Transport',color:'#2563eb',emoji:'🚲'},shopping:{name:'Achats',color:'#6d28d9',emoji:'🛍️'},housing:{name:'Logement',color:'#0e7490',emoji:'⌂'},health:{name:'Santé',color:'#be185d',emoji:'✚'},services:{name:'Services',color:'#4338ca',emoji:'◈'},other:{name:'Autres',color:'#475569',emoji:'◌'}};
-export const paymentKinds={card:{name:'Carte',color:null,symbol:''},direct_debit:{name:'Prélèvement',color:'#172554',symbol:'↻'},transfer:{name:'Virement',color:'#d7264b',symbol:'↗'},unknown:{name:'Type non identifié',color:null,symbol:'?'}};
+export const paymentKinds={card:{name:'Carte',color:'#5263ad'},direct_debit:{name:'Prélèvement',color:'#343b50'},transfer:{name:'Virement',color:'#926951'},unknown:{name:'Type non identifié',color:'#737782'}};
+export function paymentColor(transaction){return (paymentKinds[transaction.paymentKind]||paymentKinds.unknown).color}
+export function overviewPaymentKind(items){const kinds=new Set(items.map(t=>Object.hasOwn(paymentKinds,t.paymentKind)?t.paymentKind:'unknown'));return kinds.size===1?[...kinds][0]:'unknown'}
 export function merchantKey(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\b(?:facture|paiement|carte|cb|du|le)\b/g,' ').replace(/[^a-z]+/g,' ').trim()}
 
 export const euro=cents=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(cents/100);
