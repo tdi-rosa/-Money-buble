@@ -59,3 +59,8 @@ test('retained distant bubbles regroup rapidly in both month-to-week and week-to
  const start=f.bodies[0].x;for(let i=0;i<90;i++)f.stepLive(1/120);assert.ok(f.bodies[0].x<start*.15,'a retained circle must not use the slow resting attraction during contraction');
  }
 });
+test('retained circles keep the gathering force after a large departing obstacle has delayed their return',()=>{
+ const f=new BubbleField();f.bodies=[{id:'retained',x:300,y:0,tx:30,ty:0,centerX:0,centerY:0,cluster:true,inPeriod:true,arriving:false,gatheringUntil:.85,r:10,targetR:10,travelSpeed:450},{id:'departing',x:0,y:3000,tx:0,ty:3000,motionX:0,motionY:10000,departing:true,inPeriod:false,r:100,targetR:100,travelSpeed:450}];
+ for(let i=0;i<240;i++)f.stepLive(1/120);f.bodies=f.bodies.filter(b=>!b.departing);f.bodies[0].x=300;f.bodies[0].vx=0;
+ for(let i=0;i<90;i++)f.stepLive(1/120);assert.ok(f.bodies[0].x<45,'the force must continue after the departure, rather than expiring at the initial transition timer');
+});

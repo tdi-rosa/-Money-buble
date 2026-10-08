@@ -27,11 +27,11 @@ let layoutRevision=0,pendingNavigation=null,layoutPayload=null,lastLayoutData=nu
 const previews=new Map(),layouts=new Map(),bodyPool=new Map();
 const simulationWorker=new Worker(new URL('./simulation-worker.js',import.meta.url),{type:'module'});
 let simulationRevision=0,simulationBodies=null,simulationPositions=null,simulationArrivals=null,simulationRunning=false;
-simulationWorker.onmessage=({data:result})=>{if(result.revision===simulationRevision){simulationPositions=result.positions;simulationArrivals=result.arrivals;field.time=result.time??field.time;wake();}};
+simulationWorker.onmessage=({data:result})=>{if(result.revision===simulationRevision){simulationPositions=result.positions;simulationArrivals=result.arrivals;field.time=result.time??field.time;field.regroupUntil=result.regroupUntil??field.regroupUntil;wake();}};
 function simulate(elapsed,scale,organic){
   if(field.bodies.length<=60){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;}return field.stepLive(elapsed,{pixelScale:scale,organic});}
   const message={running:true,options:{pixelScale:scale,organic},dragId:field.dragId,dragTarget:field.dragTarget};
-  if(simulationBodies!==field.bodies){simulationBodies=field.bodies;simulationPositions=simulationArrivals=null;message.revision=++simulationRevision;message.time=field.time||0;
+  if(simulationBodies!==field.bodies){simulationBodies=field.bodies;simulationPositions=simulationArrivals=null;message.revision=++simulationRevision;message.time=field.time||0;message.regroupUntil=field.regroupUntil||0;
     message.bodies=field.bodies.map(({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,arriving,gatheringUntil,departing,travelSpeed})=>({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,arriving,gatheringUntil,departing,travelSpeed}));}
   simulationWorker.postMessage(message);simulationRunning=true;
   if(simulationPositions){const follow=1-Math.exp(-20*elapsed);for(let i=0;i<field.bodies.length;i++){const b=field.bodies[i];b.x+=(simulationPositions[i*4]-b.x)*follow;b.y+=(simulationPositions[i*4+1]-b.y)*follow;b.vx=simulationPositions[i*4+2];b.vy=simulationPositions[i*4+3];if(simulationArrivals)b.arriving=!!simulationArrivals[i];}}
@@ -45,7 +45,7 @@ function receiveLayout(result){
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
   levelFit=result.fitByMode||levelFit;layouts.set(mode+':'+selected,result);
   const navigation=pendingNavigation;pendingNavigation=null;
-  if(navigation||prefs.motion){field.bodies=result.specs.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,phase:i*2.3999632297,retired:false,arriving:false,departing:false,travelSpeed:450,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;join=null;if(navigation)slide={...navigation,progress:0};}
+  if(navigation||prefs.motion){field.bodies=result.specs.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,phase:i*2.3999632297,retired:false,gatheringUntil:0,arriving:false,departing:false,travelSpeed:450,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;field.regroupUntil=0;join=null;if(navigation)slide={...navigation,progress:0};}
   else beginJoin(result);
   if(layoutPayload){
     const requests=[{mode,date:navigate(selected,mode,-1)},{mode,date:navigate(selected,mode,1)},...modes.filter(m=>m!==mode).map(mode=>({mode,date:selected}))];
@@ -94,7 +94,7 @@ function beginJoin(result){
     const dx=b.x-w/2,dy=b.y-h/2,length=Math.hypot(dx,dy)||1,reach=Math.max(w,h)/Math.max(.05,fitZoom)+b.r*2;
     b.motionX=w/2+(dx||1)/length*reach;b.motionY=h/2+dy/length*reach;b.inPeriod=false;b.departing=true;b.travelSpeed=450;leaving.push(b);
   }
-  field.bodies=[...bodies,...leaving];field.settled=false;fitTarget=result.fitZoom;
+  field.bodies=[...bodies,...leaving];field.regroupUntil=(field.time||0)+.85;field.settled=false;fitTarget=result.fitZoom;
   join={progress:0,fromFit:fitZoom,toFit:fitTarget,duration:.85};
 }
 function adoptScreen(){
