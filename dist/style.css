@@ -30,3 +30,5 @@
 
 /* Dense histories retain every 44px bubble and can scroll vertically. */
 .app{overflow-y:auto}.stage{flex-shrink:0}canvas{touch-action:pan-y}
+
+.camera-label{background:transparent;min-height:18px;padding:0 4px;font-size:10px;line-height:18px}

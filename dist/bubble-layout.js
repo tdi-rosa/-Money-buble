@@ -50,7 +50,7 @@ export function periodCamera(groups,{mode='day',date=groups[0]?.start,width=400,
   const points=[...centers.values()];
   const edges=days.flatMap(d=>{const c=centers.get(d);return [...geometry.get(d).values()].map(b=>({left:c.x+b.x-b.r,right:c.x+b.x+b.r,top:c.y+b.y-b.r,bottom:c.y+b.y+b.r}))});
   const minX=Math.min(...points.map(p=>p.x-CELL/2),...edges.map(p=>p.left)),maxX=Math.max(...points.map(p=>p.x+CELL/2),...edges.map(p=>p.right)),minY=Math.min(...points.map(p=>p.y-CELL/2),...edges.map(p=>p.top)),maxY=Math.max(...points.map(p=>p.y+CELL/2),...edges.map(p=>p.bottom));
-  const scale=Math.min((width-24)/(maxX-minX),(height-40)/(maxY-minY));
+  const scale=Math.min((width-24)/(maxX-minX),(height-40)/(maxY-minY))*(mode==='month'?.82:1);
   const cx=(minX+maxX)/2,cy=(minY+maxY)/2;
   const project=p=>({x:width/2+(p.x-cx)*scale,y:height/2+(p.y-cy)*scale});
   return {scale,geometry,centers,project,labels:days.map(d=>{const p=project(centers.get(d));return {id:d,start:d,end:d,items:byDate.get(d),x:p.x,y:p.y,labelY:p.y+CELL*.43*scale,maxR:CELL*.45*scale}})};
