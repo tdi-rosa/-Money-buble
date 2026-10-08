@@ -1,11 +1,11 @@
 {
   "name": "money-bubble",
   "private": true,
-  "version": "0.7.6",
+  "version": "0.7.7",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "check": "node --check dist/fluid-gauge.js && node --check dist/wallet.js && node --check dist/app.js && node --check dist/bank-state.js && node --check dist/core.js && node --check dist/physics.js && node --check dist/simulation-worker.js && node --check dist/periods.js && node --check dist/sw.js && node --check dist/updates.js && node --check server/enrich-dates.js && node --check server/purchase-dates.js && node --check server/bank.js && node --check api/bank/start.js && node --check api/bank/callback.js && node --check api/bank/status.js && node --check api/bank/sync.js && node --check api/bank/disconnect.js && node --check dist/bank-window.js && node --check dist/bank-connect.js && node --check dist/bank-return.js && node --check server/classification.js && node --check dist/bubble-layout.js && node --check dist/layout-worker.js && node --check dist/gestures.js && node --check dist/circle-pack.js && node --check dist/cluster-tree.js",
+    "check": "node --check dist/fluid-gauge.js && node --check dist/wallet.js && node --check dist/app.js && node --check dist/bank-state.js && node --check dist/core.js && node --check dist/simulation-state.js && node --check dist/physics.js && node --check dist/simulation-worker.js && node --check dist/periods.js && node --check dist/sw.js && node --check dist/updates.js && node --check server/enrich-dates.js && node --check server/purchase-dates.js && node --check server/bank.js && node --check api/bank/start.js && node --check api/bank/callback.js && node --check api/bank/status.js && node --check api/bank/sync.js && node --check api/bank/disconnect.js && node --check dist/bank-window.js && node --check dist/bank-connect.js && node --check dist/bank-return.js && node --check server/classification.js && node --check dist/bubble-layout.js && node --check dist/layout-worker.js && node --check dist/gestures.js && node --check dist/circle-pack.js && node --check dist/cluster-tree.js",
     "build": "node scripts/build.mjs"
   }
 }

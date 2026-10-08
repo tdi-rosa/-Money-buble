@@ -1,3 +1,10 @@
+## 0.7.7
+
+- Ignore les réponses du worker appartenant à l’amas précédent ou à une simulation suspendue après un swipe.
+- Maintient l’attraction rapide des bulles éloignées selon leur distance au volume compact cible, indépendamment de l’expiration des délais.
+- Recadre sur les bulles conservées dès la contraction, pendant la sortie des autres bulles ; leur trajectoire et taille à l’écran sont compensées pendant le zoom.
+- Masque le panneau de la jauge et suspend son animation pour le moment.
+
 ## 0.7.6
 
 - Le vide représente exactement la somme de l’amas affiché ; le maximum vaut le solde restant à cette date plus ces dépenses.

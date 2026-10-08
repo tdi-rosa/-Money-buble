@@ -5,7 +5,7 @@ function tick(){timer=0;if(!running)return;
  field.stepLive(elapsed,options);
  const positions=new Float32Array(field.bodies.length*4),arrivals=new Uint8Array(field.bodies.length);
  for(let i=0;i<field.bodies.length;i++){const b=field.bodies[i];positions[i*4]=b.x;positions[i*4+1]=b.y;positions[i*4+2]=b.vx;positions[i*4+3]=b.vy;arrivals[i]=b.arriving===true?1:0;}
- self.postMessage({revision,time:field.time,regroupUntil:field.regroupUntil,positions,arrivals},[positions.buffer,arrivals.buffer]);timer=setTimeout(tick,16);
+ self.postMessage({revision,time:field.time,regroupUntil:field.regroupUntil,camera:options.camera,positions,arrivals},[positions.buffer,arrivals.buffer]);timer=setTimeout(tick,16);
 }
 self.onmessage=({data})=>{
  if(data.bodies){revision=data.revision;field.bodies=data.bodies;field.time=data.time||0;field.regroupUntil=data.regroupUntil||0;}

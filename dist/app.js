@@ -1,3 +1,4 @@
+import {ownsSimulationFrame,targetCloudRadius,projectCameraPoint,reprojectDeparture} from './simulation-state.js';
 import {FluidGauge} from './fluid-gauge.js';
 import {hitRenderedBubbles} from './bubble-layout.js';
 import {GestureSession} from './gestures.js';
@@ -26,15 +27,18 @@ const layoutWorker=new Worker(new URL('./layout-worker.js',import.meta.url),{typ
 let layoutRevision=0,pendingNavigation=null,layoutPayload=null,lastLayoutData=null,lastLayoutSize='',transactionsById=new Map(),levelFit={day:1,week:.5,month:.25};
 const previews=new Map(),layouts=new Map(),bodyPool=new Map();
 const simulationWorker=new Worker(new URL('./simulation-worker.js',import.meta.url),{type:'module'});
-let simulationRevision=0,simulationBodies=null,simulationPositions=null,simulationArrivals=null,simulationRunning=false;
-simulationWorker.onmessage=({data:result})=>{if(result.revision===simulationRevision){simulationPositions=result.positions;simulationArrivals=result.arrivals;field.time=result.time??field.time;field.regroupUntil=result.regroupUntil??field.regroupUntil;wake();}};
-function simulate(elapsed,scale,organic){
-  if(field.bodies.length<=60){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;}return field.stepLive(elapsed,{pixelScale:scale,organic});}
-  const message={running:true,options:{pixelScale:scale,organic},dragId:field.dragId,dragTarget:field.dragTarget};
+let simulationRevision=0,simulationBodies=null,simulationPositions=null,simulationArrivals=null,simulationCamera=null,simulationRunning=false;
+simulationWorker.onmessage=({data:result})=>{if(ownsSimulationFrame(result,simulationRevision,simulationBodies,field.bodies,simulationRunning)){simulationPositions=result.positions;simulationCamera=result.camera;simulationArrivals=result.arrivals;field.time=result.time??field.time;field.regroupUntil=result.regroupUntil??field.regroupUntil;wake();}};
+function simulate(elapsed,scale,organic,camera){
+  if(field.bodies.length<=60){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;}return field.stepLive(elapsed,{pixelScale:scale,organic,camera});}
+  const message={running:true,options:{pixelScale:scale,organic,camera},dragId:field.dragId,dragTarget:field.dragTarget};
   if(simulationBodies!==field.bodies){simulationBodies=field.bodies;simulationPositions=simulationArrivals=null;message.revision=++simulationRevision;message.time=field.time||0;message.regroupUntil=field.regroupUntil||0;
-    message.bodies=field.bodies.map(({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,arriving,gatheringUntil,departing,travelSpeed})=>({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,arriving,gatheringUntil,departing,travelSpeed}));}
+    message.bodies=field.bodies.map(({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,arriving,gatheringUntil,gatherRadius,departing,departureView,travelSpeed})=>({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,arriving,gatheringUntil,gatherRadius,departing,departureView,travelSpeed}));}
   simulationWorker.postMessage(message);simulationRunning=true;
-  if(simulationPositions){const follow=1-Math.exp(-20*elapsed);for(let i=0;i<field.bodies.length;i++){const b=field.bodies[i];b.x+=(simulationPositions[i*4]-b.x)*follow;b.y+=(simulationPositions[i*4+1]-b.y)*follow;b.vx=simulationPositions[i*4+2];b.vy=simulationPositions[i*4+3];if(simulationArrivals)b.arriving=!!simulationArrivals[i];}}
+  if(simulationPositions){const follow=1-Math.exp(-20*elapsed);for(let i=0;i<field.bodies.length;i++){
+    const b=field.bodies[i],raw={x:simulationPositions[i*4],y:simulationPositions[i*4+1]},p=b.departing?projectCameraPoint(raw,simulationCamera,camera):raw,velocityScale=b.departing&&simulationCamera?simulationCamera.scale/camera.scale:1;
+    b.x+=(p.x-b.x)*follow;b.y+=(p.y-b.y)*follow;b.vx=simulationPositions[i*4+2]*velocityScale;b.vy=simulationPositions[i*4+3]*velocityScale;if(simulationArrivals)b.arriving=!!simulationArrivals[i];
+  }}
   return true;
 }
 function pauseSimulation(){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;simulationBodies=null;}}
@@ -44,9 +48,9 @@ function receiveLayout(result){
   if(result.preview){if(!result.error){layouts.set(result.preview,result);if(result.preview.startsWith(mode+':'))previews.set(result.preview.slice(mode.length+1),makePreview(result));}if(dragScene)wake();return;}
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
   levelFit=result.fitByMode||levelFit;layouts.set(mode+':'+selected,result);
-  const navigation=pendingNavigation;pendingNavigation=null;
-  if(navigation||prefs.motion){field.bodies=result.specs.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,phase:i*2.3999632297,retired:false,gatheringUntil:0,arriving:false,departing:false,travelSpeed:450,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;field.regroupUntil=0;join=null;if(navigation)slide={...navigation,progress:0};}
-  else beginJoin(result);
+  const navigation=pendingNavigation,gatherRadius=targetCloudRadius(result.specs,w,h);pendingNavigation=null;
+  if(navigation||prefs.motion){field.bodies=result.specs.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,phase:i*2.3999632297,retired:false,gatheringUntil:0,gatherRadius,departureView:null,arriving:false,departing:false,travelSpeed:450,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;field.regroupUntil=0;join=null;if(navigation)slide={...navigation,progress:0};}
+  else beginJoin(result,gatherRadius);
   if(layoutPayload){
     const requests=[{mode,date:navigate(selected,mode,-1)},{mode,date:navigate(selected,mode,1)},...modes.filter(m=>m!==mode).map(mode=>({mode,date:selected}))];
     for(const options of requests){const key=options.mode+':'+options.date;if(layouts.has(key)){if(options.mode===mode)previews.set(options.date,makePreview(layouts.get(key)));continue;}layoutWorker.postMessage({id:layoutRevision,preview:key,options:{...layoutPayload.options,...options}});}
@@ -79,8 +83,8 @@ function screenSnapshot(){
   for(const r of renderedRegions)circles.set(r.body.id,{...r.body,x:r.x/ratio,y:r.y/(canvas.height/h),r:r.r/ratio,alpha:1});
   return [...circles.values()];
 }
-function beginJoin(result){
-  const previous=new Map(field.bodies.map(b=>[b.id,b])),active=new Set(result.specs.map(s=>s.id)),leaving=[];
+function beginJoin(result,gatherRadius){
+  const previousActive=field.bodies.filter(b=>b.inPeriod!==false).length,previous=new Map(field.bodies.map(b=>[b.id,b])),active=new Set(result.specs.map(s=>s.id)),leaving=[];
   const bodies=result.specs.map((s,i)=>{
     const old=previous.get(s.id),b=old||bodyPool.get(s.id)||{};
     let x=old?.x,y=old?.y;
@@ -88,14 +92,14 @@ function beginJoin(result){
       x=w/2+(length>1?dx/length:Math.cos(angle))*reach;y=h/2+(length>1?dy/length:Math.sin(angle))*reach;
       if(!previous.size){x=s.tx+Math.cos(angle)*Math.min(14,s.targetR*.25);y=s.ty+Math.sin(angle)*Math.min(14,s.targetR*.25);}
     }
-    Object.assign(b,s,{x,y,motionX:s.tx,motionY:s.ty,r:s.targetR,alpha:1,retired:false,gatheringUntil:(field.time||0)+(previous.size ? .85 : 0),arriving:!!previous.size&&(!old||old.departing),departing:false,travelSpeed:450,vx:b.vx||0,vy:b.vy||0,phase:i*2.3999632297,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;
+    Object.assign(b,s,{x,y,motionX:s.tx,motionY:s.ty,r:s.targetR,alpha:1,retired:false,gatherRadius,departureView:null,gatheringUntil:(field.time||0)+(previous.size ? .85 : 0),arriving:!!previous.size&&(!old||old.departing),departing:false,travelSpeed:450,vx:b.vx||0,vy:b.vy||0,phase:i*2.3999632297,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;
   });
   for(const b of previous.values())if(!active.has(b.id)){
     const dx=b.x-w/2,dy=b.y-h/2,length=Math.hypot(dx,dy)||1,reach=Math.max(w,h)/Math.max(.05,fitZoom)+b.r*2;
-    b.motionX=w/2+(dx||1)/length*reach;b.motionY=h/2+dy/length*reach;b.inPeriod=false;b.departing=true;b.travelSpeed=450;leaving.push(b);
+    b.motionX=w/2+(dx||1)/length*reach;b.motionY=h/2+dy/length*reach;b.inPeriod=false;b.departing=true;b.departureView={scale:zoom*fitZoom,cameraX,cameraY,panX:pan,panY,width:w,height:h};b.travelSpeed=450;leaving.push(b);
   }
   field.bodies=[...bodies,...leaving];field.regroupUntil=(field.time||0)+.85;field.settled=false;fitTarget=result.fitZoom;
-  join={progress:0,fromFit:fitZoom,toFit:fitTarget,duration:.85};
+  join={progress:0,fromFit:fitZoom,toFit:fitTarget,duration:.85,contract:result.specs.length<previousActive};
 }
 function adoptScreen(){
   // Freeze the present frame without changing the canonical circle geometry.
@@ -151,20 +155,23 @@ function frame(timestamp){
   if(join&&!dragScene&&!pendingNavigation){
     join.progress=Math.min(1,join.progress+elapsed/join.duration);const t=1-Math.pow(1-join.progress,3);
     // Only the camera interpolates. Body positions come from springs and contacts.
-    const destination=field.bodies.some(b=>b.departing)?Math.min(join.fromFit,join.toFit):join.toFit;
-    fitZoom=1/((1/join.fromFit)*(1-t)+(1/destination)*t);
+    const destination=join.toFit;
+    if(!join.contract)fitZoom=1/((1/join.fromFit)*(1-t)+(1/destination)*t);
     if(join.progress===1)join=null;
   }
-  const scale=Math.max(.01,zoom*fitZoom);
-  const physical=field.bodies.length>0&&!dragScene&&!pendingNavigation&&!slide&&simulate(elapsed,scale,!prefs.motion&&!join);
-  if(!physical)pauseSimulation();
-  // Follow the actual physical envelope, keeping the centre fixed during a join.
-  if(!join&&!bubbleDrag&&!pointer&&!pinch&&!dragScene&&!slide&&!pendingNavigation&&!field.bodies.some(b=>b.departing)){
+  // Crop the retained physical cloud immediately, even while departures remain.
+  if((!join||join.contract)&&!bubbleDrag&&!pointer&&!pinch&&!dragScene&&!slide&&!pendingNavigation){
     let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
     for(const b of field.bodies){if(!b.inPeriod)continue;left=Math.min(left,b.x-b.r);right=Math.max(right,b.x+b.r);top=Math.min(top,b.y-b.r);bottom=Math.max(bottom,b.y+b.r);}
-    if(Number.isFinite(left)){const cropped=Math.min(6,Math.max(1,w-40)/(right-left+12),Math.max(1,h-48)/(bottom-top+12)),follow=1-Math.exp(-7*elapsed);
-      fitZoom+=(cropped-fitZoom)*follow;cameraX+=((left+right)/2-cameraX)*follow;cameraY+=((top+bottom)/2-cameraY)*follow;}
+    if(Number.isFinite(left)){const follow=1-Math.exp(-7*elapsed),cx=join?w/2:(left+right)/2,cy=join?h/2:(top+bottom)/2;
+      cameraX+=(cx-cameraX)*follow;cameraY+=(cy-cameraY)*follow;
+      const spanX=2*Math.max(right-cameraX,cameraX-left)+12,spanY=2*Math.max(bottom-cameraY,cameraY-top)+12,cropped=Math.min(6,Math.max(1,w-40)/spanX,Math.max(1,h-48)/spanY);
+      fitZoom+=(cropped-fitZoom)*follow;}
   }
+  const scale=Math.max(.01,zoom*fitZoom),camera={scale,cameraX,cameraY,panX:pan,panY,width:w,height:h};
+  for(const b of field.bodies)reprojectDeparture(b,camera);
+  const physical=field.bodies.length>0&&!dragScene&&!pendingNavigation&&!slide&&simulate(elapsed,scale,!prefs.motion&&!join,camera);
+  if(!physical)pauseSimulation();
   if(!join){const active=field.bodies.filter(b=>b.inPeriod||Math.abs(b.x-cameraX)*scale<w/2+b.r*scale&&Math.abs(b.y-cameraY)*scale<h/2+b.r*scale);if(active.length!==field.bodies.length)field.bodies=active;}
 
   draw();$('recenter').hidden=Math.abs(zoomTarget-1)<=.04&&Math.abs(panTarget)<2&&Math.abs(panYTarget)<2;
@@ -173,7 +180,7 @@ function frame(timestamp){
 function wake(){if(!raf&&!document.hidden){last=0;raf=requestAnimationFrame(frame)}}
 function resize(){const r=stage.getBoundingClientRect(),oldW=w,oldH=h;if(canvas.width&&Math.abs(w-r.width)<.5&&Math.abs(h-r.height)<.5)return;
   w=r.width;h=r.height;const ratio=Math.min(2,devicePixelRatio||1);canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);ctx.setTransform(canvas.width/w,0,0,canvas.height/h,0,0);
-  for(const b of field.bodies){b.x*=w/oldW;b.y*=h/oldH}cameraX=w/2;cameraY=h/2;field.resize(w,h);refresh();
+  for(const b of field.bodies){b.x*=w/oldW;b.y*=h/oldH;b.departureView=null}cameraX=w/2;cameraY=h/2;field.resize(w,h);refresh();
 }
 new ResizeObserver(resize).observe(stage);
 document.addEventListener('visibilitychange',()=>{if(document.hidden){pauseSimulation();releaseBubble();if(raf)cancelAnimationFrame(raf);raf=0;gestures.reset();inputState();dragScene=null;swipeOffset=0;panTarget=panYTarget=0;zoomTarget=1;}else wake()});
@@ -208,6 +215,7 @@ function show(id){$(id).showModal();dismissHint()}
 function openDetail(t){if(t.members){openList(t.members,t.merchant);return}activeTransaction=t;const container=$('detailContent');container.replaceChildren();const icon=element('div',cat(t).emoji,'detail-icon');icon.style.background=bubbleColor(t);const heading=element('h2',t.merchant,'detail-merchant'),value=element('div',amount(t.amountCents),'detail-amount'),meta=element('p',`${validDate(t.date)?dateFmt(t.date,{day:'numeric',month:'long'}):"Date d'achat inconnue"}${t.dateBasis==='label'?' · date du libellé':t.dateBasis==='estimated'?' · date comptable, achat non daté':''}${t.status==='pending'?' · en attente':''}${demo?' · démo':''}`,'detail-meta');container.append(icon,heading,value,meta,element('small',paymentKinds[t.paymentKind]?.name||paymentKinds.unknown.name));if(t.bookingDate)container.append(element('small','Comptabilisé le '+dateFmt(t.bookingDate,{day:'numeric',month:'long'})));container.append(element('span','Ça valait le coup ?','reflection'));const feelings=element('div',undefined,'feelings');for(const [feeling,emoji,label]of [['yes','☀','Oui, ça valait le coup'],['neutral','◌','À voir'],['no','☁','Pas tellement']]){const b=element('button',emoji);b.setAttribute('aria-label',label);b.classList.toggle('chosen',notes[t.id]?.feeling===feeling);b.setAttribute('aria-pressed',notes[t.id]?.feeling===feeling?'true':'false');b.onclick=()=>{notes[t.id]={...(notes[t.id]||{}),feeling};save(keys.notes,notes);for(const btn of feelings.children){const yes=btn===b;btn.classList.toggle('chosen',yes);btn.setAttribute('aria-pressed',yes?'true':'false')}};feelings.append(b)}container.append(feelings);const textarea=element('textarea',undefined,'note');textarea.placeholder='Une petite note…';textarea.maxLength=500;textarea.setAttribute('aria-label','Note sur cet achat');textarea.value=typeof notes[t.id]?.note==='string'?notes[t.id].note:'';textarea.oninput=()=>{notes[t.id]={...(notes[t.id]||{}),note:textarea.value};save(keys.notes,notes)};container.append(textarea);const pick=element('div',undefined,'category-pick');for(const [k,c]of Object.entries(categories)){const b=element('button',c.emoji);b.setAttribute('aria-label',c.name);b.classList.toggle('selected',categoryKey(t)===k);b.onclick=()=>{notes[t.id]={...(notes[t.id]||{}),category:k};save(keys.notes,notes);const key=merchantKey(t.merchant);if(key.length>=3){merchantRules[key]=k;save(keys.merchantRules,merchantRules)};icon.textContent=c.emoji;icon.style.background=c.color;for(const x of pick.children)x.classList.toggle('selected',x===b);refresh()};pick.append(b)}container.append(pick);show('detail')}
 function openList(items=scene.visible,title='Dépenses'){$('listTitle').textContent=title;$('transactionList').replaceChildren();if(!items.length)$('transactionList').append(element('p',"Aucune opération reçue pour cette période."));for(const t of [...items].sort((a,b)=>(b.date||b.bookingDate||'').localeCompare(a.date||a.bookingDate||''))){const b=element('button',undefined,'transaction-row'),icon=element('span',cat(t).emoji,'mini-icon');icon.style.background=bubbleColor(t);const name=element('span',t.merchant);name.append(element('small',`${validDate(t.date)?dateFmt(t.date,{day:'numeric',month:'short'}):'Date d’achat inconnue'}${t.status==='pending'?' · en attente':''}${t.dateBasis==='estimated'?' · date estimée':''} · ${paymentKinds[t.paymentKind]?.name||paymentKinds.unknown.name}`));b.append(icon,name,element('strong',amount(t.amountCents)));b.onclick=()=>{$('list').close();openDetail(t)};$('transactionList').append(b)}show('list')}
 function updateWallet(){
+  if($('walletButton').hidden)return;
   const actual=bankActive?bankBalance:balance?{amount:balance.amount,available:true}:demo?{amount:84230,available:true}:null;
   const asOf=bankActive?(validDate(bankBalance?.asOf)?bankBalance.asOf:bankUpdatedAt?dateKey(new Date(bankUpdatedAt)):today):balance?.updatedAt?dateKey(new Date(balance.updatedAt)):today;
   const flows=bankActive?cashflow:demo?[...data.map(t=>({id:t.id,date:t.date,amountCents:-t.amountCents,status:'booked'})),...[...new Set(data.map(t=>t.date.slice(0,7)))].map(m=>({id:'demo-income-'+m,date:m+'-01',amountCents:100000,status:'booked',label:'Apport mensuel'}))]:cashflow.length?cashflow:data.filter(t=>validDate(t.date)).map(t=>({id:t.id,date:t.date,amountCents:-t.amountCents,status:'booked'}));
