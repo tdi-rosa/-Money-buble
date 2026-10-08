@@ -1,3 +1,9 @@
+## 0.7.9
+
+- Recadre pendant le déplacement du doigt et pendant la fin du swipe, avec un zoom partagé par les deux amas.
+- Atteint le cadrage réel du nouvel amas à la fin du glissement, sans seconde phase de zoom après l’arrivée.
+- Calcule le cadrage sur les positions physiques mémorisées, plutôt que sur le placement initial. Un swipe annulé ramène aussi le zoom à son point de départ.
+
 ## 0.7.8
 
 - Partage une seule échelle monétaire entre les deux amas pendant le swipe et sa fin animée ; recadre ensuite la période affichée.

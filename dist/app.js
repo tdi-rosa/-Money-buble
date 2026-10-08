@@ -1,4 +1,4 @@
-import {CloudHistory,cloudCenter,projectCloud,rescaleScreenCloud} from './cloud-navigation.js';
+import {CloudHistory,cloudCenter,fitCloud,swipeCropScale,projectCloud,rescaleScreenCloud} from './cloud-navigation.js';
 import {ownsSimulationFrame,targetCloudRadius,projectCameraPoint,reprojectDeparture} from './simulation-state.js';
 import {FluidGauge} from './fluid-gauge.js';
 import {hitRenderedBubbles} from './bubble-layout.js';
@@ -56,7 +56,7 @@ function receiveLayout(result){
     fitTarget=result.fitZoom;field.regroupUntil=0;join=null;
     const center=cloudCenter(field.bodies,w,h);cameraX=center.x;cameraY=center.y;
     fitZoom=navigation?.fromScale??result.fitZoom;
-    if(navigation)slide={...navigation,sharedScale:Math.min(navigation.fromScale,result.fitZoom),progress:0};
+    if(navigation)slide={...navigation,sharedScale:fitCloud(field.bodies,w,h,navigation.fromScale),progress:0};
   }
   else beginJoin(result,gatherRadius);
   physicalPeriod={mode,date:selected};
@@ -68,7 +68,7 @@ function receiveLayout(result){
 function makePreview(result,key){
   const previewMode=key.slice(0,key.indexOf(':')),date=key.slice(key.indexOf(':')+1),world=cloudHistory.restore(previewMode,date,result.specs);
   for(const b of world)b.amountText=amount(b.transaction.amountCents);
-  return {fitZoom:result.fitZoom,specs:result.specs,world,center:cloudCenter(world,w,h)};
+  return {fitZoom:fitCloud(world,w,h,result.fitZoom),specs:result.specs,world,center:cloudCenter(world,w,h)};
 }
 function previewAt(preview,scale){return projectCloud(preview.world,{scale,width:w,height:h,centerX:preview.center.x,centerY:preview.center.y});}
 function rememberCloud(){if(physicalPeriod)cloudHistory.save(physicalPeriod.mode,physicalPeriod.date,field.bodies);}
@@ -94,7 +94,7 @@ function inputState(){pointer=gestures.pointer;pinch=gestures.pinch;}
 function paintedHit(e){return hitRenderedBubbles(renderedRegions,e,canvas.getBoundingClientRect(),canvas)}
 function screenSnapshot(){
   if(dragScene)return rescaleScreenCloud(dragScene,swipeSourceScale,swipeScale,w,h).map(b=>({...b,x:b.x+swipeOffset}));
-  if(pendingNavigation)return pendingNavigation.bodies.map(b=>({...b}));
+  if(pendingNavigation)return pendingNavigation.bodies.map(b=>({...b,x:b.x+(pendingNavigation.sourceOffset||0)}));
   const offset=slide?(slide.startOffset??slide.direction*w)*Math.pow(1-slide.progress,3):0;
   return projectCloud(field.bodies.filter(b=>b.inPeriod!==false),{scale:zoom*fitZoom,width:w,height:h,centerX:cameraX,centerY:cameraY,panX:pan+offset,panY});
 }
@@ -132,8 +132,8 @@ $('recenter').onclick=()=>{panTarget=panYTarget=0;zoomTarget=1;cameraSettlingUnt
 function animateHeader(){if(prefs.motion)return;for(const id of ['dateButton','spentButton']){const el=$(id);for(const a of el.getAnimations())a.cancel();el.animate([{opacity:.65},{opacity:1}],{duration:180,easing:'ease-out'});}}
 function goTo(date,direction=1){
   if(date===selected)return;
-  rememberCloud();const fromScale=dragScene?swipeScale:zoom*fitZoom,bodies=screenSnapshot(),preview=previews.get(date),startOffset=direction*w+(dragScene?swipeOffset:0);slide=null;dragScene=null;swipeOffset=0;returningSwipe=false;
-  pendingNavigation=prefs.motion?null:{bodies,direction,startOffset,fromScale,incoming:preview?previewAt(preview,fromScale):null};
+  rememberCloud();const fromScale=dragScene?swipeScale:zoom*fitZoom,sourceOffset=dragScene?swipeOffset:pendingNavigation?.sourceOffset??(slide?(slide.startOffset??slide.direction*w)*Math.pow(1-slide.progress,3):0),bodies=screenSnapshot().map(b=>({...b,x:b.x-sourceOffset})),preview=previews.get(date),startOffset=direction*w+(dragScene?swipeOffset:0);slide=null;dragScene=null;swipeOffset=0;returningSwipe=false;
+  pendingNavigation=prefs.motion?null:{bodies,direction,startOffset,sourceOffset,fromScale,incoming:preview?previewAt(preview,fromScale):null};
   selected=date;pan=panTarget=panY=panYTarget=0;zoom=zoomTarget=1;cameraX=w/2;cameraY=h/2;
   refresh();animateHeader();haptic();dismissHint();
 }
@@ -156,16 +156,16 @@ function paintBodies(bodies,{offset=0,screen=false}={}){
 function draw(){
   renderedRegions=[];ctx.clearRect(0,0,w,h);
   if(dragScene){paintBodies(rescaleScreenCloud(dragScene,swipeSourceScale,swipeScale,w,h),{offset:swipeOffset,screen:true});const direction=swipeOffset<0?1:-1,preview=previews.get(navigate(selected,mode,direction));if(preview)paintBodies(previewAt(preview,swipeScale),{offset:direction*w+swipeOffset,screen:true});$('empty').style.transform=`translateX(${swipeOffset}px)`;return;}
-  if(pendingNavigation){paintBodies(pendingNavigation.bodies,{screen:true});if(pendingNavigation.incoming)paintBodies(pendingNavigation.incoming,{offset:pendingNavigation.startOffset,screen:true});return;}
+  if(pendingNavigation){paintBodies(pendingNavigation.bodies,{offset:pendingNavigation.sourceOffset,screen:true});if(pendingNavigation.incoming)paintBodies(pendingNavigation.incoming,{offset:pendingNavigation.startOffset,screen:true});return;}
   let offset=0;
-  if(slide){const e=1-Math.pow(1-slide.progress,3);offset=(slide.startOffset??slide.direction*w)*(1-e);paintBodies(rescaleScreenCloud(slide.bodies,slide.fromScale,fitZoom,w,h),{offset:-(slide.startOffset??slide.direction*w)*e,screen:true});}
+  if(slide){const e=1-Math.pow(1-slide.progress,3);offset=(slide.startOffset??slide.direction*w)*(1-e);paintBodies(rescaleScreenCloud(slide.bodies,slide.fromScale,fitZoom,w,h),{offset:slide.sourceOffset-(slide.sourceOffset+slide.direction*w)*e,screen:true});}
   paintBodies(field.bodies,{offset});$('empty').style.transform=`translateX(${offset+pan}px)`;
 }
 function frame(timestamp){
   raf=0;if(document.hidden)return;const elapsed=last?Math.min(.05,(timestamp-last)/1000):1/60;last=timestamp;
   if(returningSwipe){swipeOffset*=Math.exp(-25*elapsed);if(Math.abs(swipeOffset)<.1){swipeOffset=0;fitZoom=swipeScale/zoom;adoptScreen();refresh();}}
-  if(dragScene){const direction=swipeOffset<0?1:-1,preview=previews.get(navigate(selected,mode,direction)),target=Math.min(swipeSourceScale,preview?.fitZoom??swipeSourceScale);swipeScale+=(target-swipeScale)*(1-Math.exp(-24*elapsed));}
-  if(slide){slide.progress=Math.min(1,slide.progress+elapsed/.28);const t=1-Math.pow(1-slide.progress,3);fitZoom=slide.fromScale+(slide.sharedScale-slide.fromScale)*t;if(slide.progress===1)slide=null;}
+  if(dragScene){const direction=swipeOffset<0?1:-1,preview=previews.get(navigate(selected,mode,direction)),target=preview?.world.length?preview.fitZoom:swipeSourceScale;swipeScale=swipeCropScale(swipeSourceScale,target,Math.abs(swipeOffset)/w);}
+  if(slide){slide.progress=Math.min(1,slide.progress+elapsed/.28);const t=1-Math.pow(1-slide.progress,3);fitZoom=swipeCropScale(slide.fromScale,slide.sharedScale,t);if(slide.progress===1)slide=null;}
   const direct=(pointer||pinch)&&timestamp>=cameraSettlingUntil,ease=prefs.motion||direct?1:1-Math.exp(-24*elapsed);
   pan+=(panTarget-pan)*ease;panY+=(panYTarget-panY)*ease;zoom+=(zoomTarget-zoom)*ease;
   if(join&&!dragScene&&!pendingNavigation){

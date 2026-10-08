@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CloudHistory,cloudCenter,projectCloud,rescaleScreenCloud} from '../dist/cloud-navigation.js';
+import {CloudHistory,cloudCenter,fitCloud,swipeCropScale,projectCloud,rescaleScreenCloud} from '../dist/cloud-navigation.js';
 import {ClusterCatalog} from '../dist/cluster-tree.js';
 
 test('two independently cropped periods use one monetary scale throughout a swipe',()=>{
@@ -10,11 +10,36 @@ test('two independently cropped periods use one monetary scale throughout a swip
  assert.notEqual(a.fitZoom,b.fitZoom);
  const source=projectCloud(a.specs.map(s=>({...s,x:s.tx,y:s.ty,r:s.targetR})),{...options,scale:a.fitZoom});
  for(const progress of [0,.1,.5,.9,1]){
-  const shared=a.fitZoom+(Math.min(a.fitZoom,b.fitZoom)-a.fitZoom)*progress;
+  const shared=swipeCropScale(a.fitZoom,b.fitZoom,progress);
   const left=rescaleScreenCloud(source,a.fitZoom,shared,360,500);
   const right=projectCloud(b.specs.map(s=>({...s,x:s.tx,y:s.ty,r:s.targetR})),{...options,scale:shared});
   assert.ok(Math.abs(left[0].r**2/right[0].r**2-139150/4610)<1e-9,'area must represent the expense ratio, not each period crop');
  }
+});
+
+test('cropping tracks the swipe in both directions and is complete when the slide ends',()=>{
+ for(const [from,to] of [[.5,3],[3,.5]]){
+  assert.equal(swipeCropScale(from,to,0),from);
+  assert.equal(swipeCropScale(from,to,1),to);
+  let last=from;
+  for(let i=1;i<=100;i++){
+   const scale=swipeCropScale(from,to,i/100);
+   assert.ok(scale>=Math.min(from,to)&&scale<=Math.max(from,to));
+   assert.ok(to>from?scale>=last:scale<=last);last=scale;
+  }
+  assert.notEqual(swipeCropScale(from,to,.3),from,'crop starts while the finger is still swiping');
+  assert.equal(swipeCropScale(from,to,-.1),from);assert.equal(swipeCropScale(from,to,1.5),to);
+  assert.equal(swipeCropScale(from,to,0),from,'cancelled swipe returns to the original crop');
+ }
+});
+
+test('the destination crop fits the saved physical footprint rather than the default pack',()=>{
+ const saved=[{x:90,y:110,r:30},{x:260,y:380,r:10}],width=360,height=500;
+ const scale=fitCloud(saved,width,height),center=cloudCenter(saved,width,height);
+ const painted=projectCloud(saved,{width,height,scale,centerX:center.x,centerY:center.y});
+ for(const b of painted){assert.ok(b.x-b.r>=20&&b.x+b.r<=width-20);assert.ok(b.y-b.r>=24&&b.y+b.r<=height-24);}
+ assert.equal(swipeCropScale(.3,scale,1),scale,'handoff already uses the exact final camera scale');
+ assert.equal(fitCloud([],width,height,.7),.7,'empty periods do not invent a zoom');
 });
 
 test('month after week expansion keeps its physical arrangement on left/right return',()=>{
