@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "check": "node --check dist/app.js && node --check dist/bank-state.js && node --check dist/core.js && node --check dist/physics.js && node --check dist/periods.js && node --check dist/sw.js && node --check dist/updates.js && node --check server/bank.js && node --check api/bank/start.js && node --check api/bank/callback.js && node --check api/bank/status.js && node --check api/bank/sync.js && node --check api/bank/disconnect.js",
+    "check": "node --check dist/app.js && node --check dist/bank-state.js && node --check dist/core.js && node --check dist/physics.js && node --check dist/periods.js && node --check dist/sw.js && node --check dist/updates.js && node --check server/purchase-dates.js && node --check server/bank.js && node --check api/bank/start.js && node --check api/bank/callback.js && node --check api/bank/status.js && node --check api/bank/sync.js && node --check api/bank/disconnect.js",
     "build": "node scripts/build.mjs"
   }
 }
