@@ -37,11 +37,26 @@ test('all periods retain every expense as its own clickable bubble, even beyond 
  for(const mode of ['day','week','month']){
   const scene=groupTransactions(items,'2026-10-08',mode);
   const groups=scene.groups.map((g,i)=>({...g,x:100,y:100+i*200,maxR:80,cellW:200}));
-  const bubbles=expenseBubbles(groups,paymentColor);
+  const bubbles=expenseBubbles(groups,paymentColor,{mode,date:'2026-10-08',width:400,height:400});
   assert.deepEqual(bubbles.map(b=>b.id).sort(),items.map(t=>t.id).sort());
-  assert.ok(bubbles.every(b=>b.targetR>=22&&b.transaction===items.find(t=>t.id===b.id)));
+  assert.ok(bubbles.every(b=>b.targetR>0&&b.transaction===items.find(t=>t.id===b.id)));
   assert.equal(bubbles.reduce((s,b)=>s+b.transaction.amountCents,0),items.reduce((s,t)=>s+t.amountCents,0));
  }
  const month=groupTransactions(items,'2026-10-08','month');assert.equal(month.groups.length,5);
  assert.ok(month.groups.some(g=>g.start==='2026-10-05'&&g.end==='2026-10-11'));
+});
+
+test('overview bubbles are exactly a uniform zoom of each daily cluster',()=>{
+ const items=Array.from({length:12},(_,i)=>({id:'zoom-'+i,date:i<6?'2026-10-07':'2026-10-08',amountCents:(i+1)**3*50,paymentKind:'card'}));
+ const make=(mode)=>expenseBubbles(groupTransactions(items,'2026-10-08',mode).groups,paymentColor,{mode,date:'2026-10-08',width:360,height:420});
+ const day=make('day');
+ for(const mode of ['week','month']){
+  const view=make(mode),shared=day.map(b=>view.find(v=>v.id===b.id)),scale=shared[0].targetR/day[0].targetR;
+  assert.ok(scale<1);
+  for(let i=0;i<day.length;i++){
+   assert.ok(Math.abs(shared[i].targetR/day[i].targetR-scale)<1e-9);
+   assert.ok(Math.abs((shared[i].tx-shared[0].tx)-(day[i].tx-day[0].tx)*scale)<1e-8);
+   assert.ok(Math.abs((shared[i].ty-shared[0].ty)-(day[i].ty-day[0].ty)*scale)<1e-8);
+  }
+ }
 });

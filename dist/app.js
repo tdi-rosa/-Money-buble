@@ -1,4 +1,4 @@
-import {expenseBubbles,MIN_RADIUS,gestureAction,scenePoint} from './bubble-layout.js';
+import {expenseBubbles,periodCamera,MIN_RADIUS,gestureAction,scenePoint} from './bubble-layout.js';
 import {openBankWindow} from './bank-window.js';
 import {bankSnapshot} from './bank-state.js';
 import {categories,paymentKinds,paymentColor,merchantKey,euro,dateKey,shiftDate,validateImport,demoData,validDate,mergePurchaseDates,displayPurchaseDates} from './core.js';
@@ -19,22 +19,19 @@ const merchantRules=read(keys.merchantRules,{});
 const categoryKey=t=>notes[t.id]?.category||(Object.hasOwn(categories,merchantRules?.[merchantKey(t.merchant)])?merchantRules[merchantKey(t.merchant)]:t.category),bubbleColor=paymentColor;
 const amount=n=>prefs.privacy?'••• €':euro(n),cat=t=>categories[categoryKey(t)]||categories.other,dateFmt=(d,opts)=>new Intl.DateTimeFormat('fr-FR',{...opts,timeZone:'Europe/Paris'}).format(new Date(d+'T12:00:00Z'));
 function title(){const {start,end}=bounds(selected,mode);if(mode==='day'){$('periodTitle').textContent=selected===today?"Aujourd'hui":dateFmt(selected,{weekday:'long'});$('periodSubtitle').textContent=dateFmt(selected,{day:'numeric',month:'long',year: 'numeric'})}else if(mode==='week'){$('periodTitle').textContent=start.slice(0,7)===end.slice(0,7)?`${Number(start.slice(-2))} – ${dateFmt(end,{day:'numeric',month:'short'})}`:`${dateFmt(start,{day:'numeric',month:'short'})} – ${dateFmt(end,{day:'numeric',month:'short'})}`;$('periodSubtitle').textContent='une semaine'}else{$('periodTitle').textContent=dateFmt(selected,{month:'long'});$('periodSubtitle').textContent=selected.slice(0,4)}$('datePicker').value=selected;$('backToday').hidden=bounds(today,mode).start===start;}
-function shortGroup(g){return mode==='week'?dateFmt(g.start,{weekday:'short',day:'numeric'}):`${Number(g.start.slice(-2))} – ${dateFmt(g.end,{day:'numeric',month:'short'})}`}
+function shortGroup(g){return mode==='week'?dateFmt(g.start,{weekday:'short',day:'numeric'}):String(Number(g.start.slice(-2)))}
 function layoutGroups(input){
-  const columns=mode==='day'?1:Math.min(input.length,w>600?3:2),cellW=w/columns,rows=Math.ceil(input.length/columns);
-  const rowHeights=Array.from({length:rows},(_,row)=>Math.max(mode==='day'?240:150,...input.slice(row*columns,(row+1)*columns).map(g=>Math.ceil(g.items.length/Math.max(1,Math.floor((cellW-24)/48)))*48+80)));
-  const needed=rowHeights.reduce((a,b)=>a+b,0)+24;stage.style.minHeight=`${needed}px`;
-  const extra=Math.max(0,h-needed)/rows;let top=12;
-  return input.map((g,i)=>{const row=Math.floor(i/columns),column=i%columns;if(i&&column===0)top+=rowHeights[row-1]+extra;const height=rowHeights[row]+extra,cols=Math.min(columns,input.length-row*columns);return {...g,x:w/2+(column-(cols-1)/2)*cellW,y:top+(height-48)/2,maxR:Math.max(MIN_RADIUS,Math.min(cellW*.42,(height-64)*.43)),cellW,clusterHeight:height-64,labelY:top+height-28}});
+  stage.style.minHeight='240px';
+  return periodCamera(input,{mode,date:selected,width:w,height:h}).labels;
 }
 function refresh(){title();const displayed=displayPurchaseDates(data),undated=displayed.filter(t=>!validDate(t.date));$('undatedButton').hidden=!undated.length;$('undatedButton').textContent=undated.length+' achat'+(undated.length>1?'s':'')+' sans date d’achat';scene=groupTransactions(displayed,selected,mode);groups=layoutGroups(scene.groups);$('spent').textContent=bankActive&&!scene.visible.length?'—':amount(sum(scene.visible));$('spentButton').setAttribute('aria-label',`${bankActive&&!scene.visible.length?'Aucun achat daté pour cette période':prefs.privacy?'Montant masqué':euro(sum(scene.visible))}. ${scene.visible.length} dépenses. Ouvrir la liste`);$('pendingBadge').hidden=!scene.visible.some(t=>t.status==='pending');$('estimatedBadge').hidden=!scene.visible.some(t=>t.dateBasis==='estimated');$('empty').hidden=scene.visible.length!==0;$('empty').querySelector('p').textContent=bankActive?(undated.length?'La banque n’a pas fourni la date de certains achats.':'Aucune opération reçue. Les paiements peuvent arriver plus tard.'):"Rien ici, pour l’instant.";$('sourceBadge').textContent=bankActive?(bankFresh?'BNP':'BNP · dernière synchro'):demo?'démo':'local';$('groupLabels').replaceChildren();
-  const specs=expenseBubbles(groups,bubbleColor);
+  const specs=expenseBubbles(scene.groups,bubbleColor,{mode,date:selected,width:w,height:h});
   if(mode!=='day')for(const g of groups){
-    const b=document.createElement('button');b.className='group-label'+(g.items.length?'':' empty-group');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.textContent=shortGroup(g);b.setAttribute('aria-label',`${shortGroup(g)}, ${g.items.length} dépenses. Ouvrir ${mode==='month'?'cette semaine':'ce jour'}`);b.onclick=()=>drill(g);$('groupLabels').append(b);
+    const b=document.createElement('button');b.className='group-label'+(g.items.length?'':' empty-group');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.textContent=shortGroup(g);b.setAttribute('aria-label',`${shortGroup(g)}, ${g.items.length} dépenses. Ouvrir ${'ce jour'}`);b.onclick=()=>drill(g);$('groupLabels').append(b);
   }
   field.reconcile(specs);if(prefs.motion){for(let i=0;i<240;i++)field.step(1/60)}updateWallet();syncPrefs();wake();
 }
-function drill(g,t){selected=t?.date||g.start;changeMode(t?'day':mode==='month'?'week':'day');haptic()}
+function drill(g,t){selected=t?.date||g.start;changeMode('day');haptic()}
 function changeMode(m){if(mode===m||slide)return;field.dragId=null;field.dragTarget=null;pointer=null;$('dragLabel').hidden=true;mode=m;animateHeader();for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-pressed',b.dataset.mode===m?'true':'false');$('modeIndicator').style.transform=`translateX(${['day','week','month'].indexOf(m)*100}%)`;refresh()}
 const modes=['day','week','month'];
 let slide=null,pan=0,panTarget=0,zoom=1,zoomTarget=1,pinch=null;
