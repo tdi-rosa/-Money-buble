@@ -1,3 +1,11 @@
+## 0.7.1 — 2026-10-08
+
+- Nested, immutable expense geometry: selected day coordinates survive the week and month expansion.
+- One shared amount scale with stable camera references across dates; smaller periods are not independently enlarged.
+- Centered camera expansion and radial arrivals replace collision keyframes and per-period repacking.
+- Reusable catalog, compact worker messages and cached layouts/previews remove repeated month calculations.
+- Incoming and outgoing slide pages retain exactly one viewport width of separation.
+
 ## 0.7.0 — 2026-10-08
 
 - One proportional expense cluster for the day, week or month. Other days join the same cluster when zooming out.

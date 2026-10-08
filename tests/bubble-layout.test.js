@@ -52,7 +52,7 @@ test('week and month collect all expenses into one framed proportional cluster',
   const camera=periodCamera([{items}],{mode,date:'2026-10-08',width:360,height:420});
   const bubbles=expenseBubbles([{items}],paymentColor,{},camera).filter(b=>b.inPeriod);
   assert.equal(camera.labels.length,0);assert.equal(bubbles.length,mode==='day'?1:mode==='week'?7:28);
-  for(const b of bubbles){assert.ok(b.tx-b.targetR>=19.99&&b.tx+b.targetR<=340.01);assert.ok(b.ty-b.targetR>=23.99&&b.ty+b.targetR<=396.01);}
+  for(const b of bubbles){const x=180+(b.tx-180)*camera.fitZoom,y=210+(b.ty-210)*camera.fitZoom,r=b.targetR*camera.fitZoom;assert.ok(x-r>=19.99&&x+r<=340.01);assert.ok(y-r>=23.99&&y+r<=396.01);}
   for(const b of bubbles)assert.ok(Math.abs(b.targetR**2/bubbles[0].targetR**2-b.transaction.amountCents/bubbles[0].transaction.amountCents)<1e-9);
  }
 });
@@ -109,14 +109,11 @@ test('period framing excludes surrounding history while retaining it outside the
   }
  }
 });
-test('day framing fills the available area even when another day has a very large expense',()=>{
- const small=[{id:'one',date:'2026-10-08',amountCents:100},{id:'two',date:'2026-10-08',amountCents:390}];
- const layout=items=>expenseBubbles([{items}],paymentColor,{mode:'day',date:'2026-10-08',width:360,height:420}).filter(b=>b.inPeriod);
- const a=layout(small),b=layout([...small,{id:'large',date:'2026-09-01',amountCents:1000000}]);
- assert.deepEqual(a,b);
- const spanX=Math.max(...a.map(x=>x.tx+x.targetR))-Math.min(...a.map(x=>x.tx-x.targetR));
- const spanY=Math.max(...a.map(x=>x.ty+x.targetR))-Math.min(...a.map(x=>x.ty-x.targetR));
- assert.ok(spanX>=300||spanY>=360);assert.ok(Math.abs(a[1].targetR**2/a[0].targetR**2-3.9)<1e-9);
+test('a small day is not magnified to the size of a much more expensive day',()=>{
+ const items=[{id:'small',date:'2026-10-08',amountCents:9000},{id:'large',date:'2026-10-09',amountCents:100000}];
+ const small=expenseBubbles([{items}],paymentColor,{mode:'day',date:'2026-10-08',width:360,height:420}).find(b=>b.id==='small');
+ const large=expenseBubbles([{items}],paymentColor,{mode:'day',date:'2026-10-09',width:360,height:420}).find(b=>b.id==='large');
+ assert.ok(Math.abs(large.targetR**2/small.targetR**2-1000/90)<1e-9);
 });
 
 test('short month viewports never create negative radii',()=>{
