@@ -1,4 +1,4 @@
-export const categories={food:{name:'Alimentation',color:'#d3ddb2',emoji:'🥑'},out:{name:'Sorties & cafés',color:'#edc8ad',emoji:'☕'},transport:{name:'Transport',color:'#c5d9dc',emoji:'🚲'},shopping:{name:'Achats',color:'#d8cce4',emoji:'🛍️'},other:{name:'Autres',color:'#dedccf',emoji:'◌'}};
+export const categories={food:{name:'Alimentation',color:'#a8e4bd',emoji:'🥑'},out:{name:'Sorties & cafés',color:'#ffbdab',emoji:'☕'},transport:{name:'Transport',color:'#a9d9f5',emoji:'🚲'},shopping:{name:'Achats',color:'#c6b5f6',emoji:'🛍️'},other:{name:'Autres',color:'#f6db8c',emoji:'◌'}};
 export const euro=cents=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(cents/100);
 export function dateKey(d=new Date()){return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Paris',year:'numeric',month:'2-digit',day:'2-digit'}).format(d)}
 export function shiftDate(day,delta){const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+delta);return d.toISOString().slice(0,10)}
