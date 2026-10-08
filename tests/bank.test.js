@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,verify} from 'node:crypto';
-import {seal,unseal,jwt,guard,mapTransactions,selectBalance,decimalCents,same,session,ORIGIN} from '../server/bank.js';
+import {seal,unseal,jwt,guard,mapTransactions,selectBalance,decimalCents,same,session,ORIGIN,api} from '../server/bank.js';
 const keys=generateKeyPairSync('rsa',{modulusLength:2048});
 process.env.ENABLE_BANKING_PRIVATE_KEY=keys.privateKey.export({type:'pkcs8',format:'pem'});
 test('bank cookies are encrypted, authenticated, expire and are purpose bound',()=>{const v={sid:'secret-session',accounts:[{uid:'abc'}],exp:Date.now()/1000+60};const token=seal(v,'bank-session');assert.deepEqual(unseal(token,'bank-session'),v);assert.equal(token.includes('secret-session'),false);assert.equal(unseal(token,'bank-connect'),null);const raw=Buffer.from(token,'base64url');raw[raw.length-1]^=1;assert.equal(unseal(raw.toString('base64url'),'bank-session'),null);assert.equal(unseal(seal({...v,exp:1},'bank-session'),'bank-session'),null);assert.throws(()=>session({headers:{}}),/reconnect/)});
@@ -33,3 +33,5 @@ test('end-to-end mock: authorization, state binding, account access, sync and re
  const done=makeRes();await disconnect(req('POST',{},bankCookie),done);assert.ok(revoked);assert.ok(done.headers['Set-Cookie'][0].includes('Max-Age=0'));
  }finally{global.fetch=previous}
 });
+
+test('expired or revoked bank consent requests reconnection rather than a new private key',async()=>{for(const error of ['EXPIRED_SESSION','REVOKED_SESSION','CLOSED_SESSION','SESSION_DOES_NOT_EXIST'])await assert.rejects(api('/sessions/mock',{fetcher:async()=>({ok:false,status:401,json:async()=>({error})})}),e=>e.code==='reconnect')});
