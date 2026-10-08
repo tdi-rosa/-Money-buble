@@ -17,15 +17,15 @@ test('the top of a bubble remains clickable with canvas scaling and zoom',()=>{
  assert.ok(Math.abs(p.x-100)<1e-8);assert.ok(Math.abs(p.y-30)<1e-8);
  assert.equal(f.hit(p.x,p.y)?.id,'upper');
 });
-test('tiny and large expenses keep 44px targets and bounded, proportional extra area',()=>{
- const values=[1,100,10000,1000000],r=bubbleRadii(values,{budget:12000,maxRadius:80});
- assert.ok(r.every(x=>Number.isFinite(x)&&x>=22&&x<=80));assert.ok(r.every((x,i)=>!i||x>=r[i-1]));
- assert.ok(Math.abs((r[1]**2-484)/100-(r[0]**2-484))<1e-6);
- assert.ok(r.reduce((s,x)=>s+x*x,0)<=12000.00001);
+test('areas are strictly proportional without a visual floor or saturation',()=>{
+ const values=[1,100,1000,3900,1000000],r=bubbleRadii(values,{budget:12000,maxRadius:80});
+ assert.ok(r.every(x=>Number.isFinite(x)&&x>0&&x<=80));
+ for(let i=1;i<r.length;i++)assert.ok(Math.abs(r[i]**2/r[0]**2-values[i])<1e-7);
+ assert.ok(Math.abs(r[3]**2/r[2]**2-3.9)<1e-10);
 });
-test('swiping on a bubble navigates, taps open days in both overviews, cancel does nothing',()=>{
+test('swiping on a bubble navigates, taps open expense details in every view, cancel does nothing',()=>{
  assert.equal(gestureAction({dx:-100,dy:5,moved:true,mode:'day',body:{}}),'next');
- for(const mode of ['week','month'])assert.equal(gestureAction({dx:0,dy:0,moved:false,mode,body:{},group:{}}),'drill');
+ for(const mode of ['week','month'])assert.equal(gestureAction({dx:0,dy:0,moved:false,mode,body:{},group:{}}),'detail');
  assert.equal(gestureAction({dx:0,dy:0,moved:false,mode:'day',body:{}}),'detail');
  assert.equal(gestureAction({dx:100,dy:0,cancelled:true}),'none');
 });
@@ -48,7 +48,7 @@ test('all periods retain every expense as its own clickable bubble, even beyond 
 
 test('overview bubbles are exactly a uniform zoom of each daily cluster',()=>{
  const items=Array.from({length:12},(_,i)=>({id:'zoom-'+i,date:i<6?'2026-10-07':'2026-10-08',amountCents:(i+1)**3*50,paymentKind:'card'}));
- const make=(mode)=>expenseBubbles(groupTransactions(items,'2026-10-08',mode).groups,paymentColor,{mode,date:'2026-10-08',width:360,height:420});
+ const make=(mode)=>expenseBubbles([{items}],paymentColor,{mode,date:'2026-10-08',width:360,height:420});
  const day=make('day');
  for(const mode of ['week','month']){
   const view=make(mode),shared=day.map(b=>view.find(v=>v.id===b.id)),scale=shared[0].targetR/day[0].targetR;
@@ -63,7 +63,7 @@ test('overview bubbles are exactly a uniform zoom of each daily cluster',()=>{
 
 test('daily and zoomed clusters have no overlapping circles, including every transition frame',()=>{
  const items=Array.from({length:18},(_,i)=>({id:'contact-'+i,date:i<9?'2026-10-07':'2026-10-08',amountCents:(i+1)**2*110,paymentKind:'card'}));
- const specs=mode=>expenseBubbles(groupTransactions(items,'2026-10-08',mode).groups,paymentColor,{mode,date:'2026-10-08',width:360,height:420});
+ const specs=mode=>expenseBubbles([{items}],paymentColor,{mode,date:'2026-10-08',width:360,height:420});
  const separated=bodies=>{for(let i=0;i<bodies.length;i++)for(let j=0;j<i;j++)assert.ok(Math.hypot(bodies[i].x-bodies[j].x,bodies[i].y-bodies[j].y)>=bodies[i].r+bodies[j].r-.01,`${bodies[i].id} overlaps ${bodies[j].id}`)};
  for(const mode of ['day','week','month'])separated(specs(mode).map(s=>({...s,x:s.tx,y:s.ty,r:s.targetR})));
  const field=new BubbleField();field.resize(360,420);
@@ -73,10 +73,38 @@ test('daily and zoomed clusters have no overlapping circles, including every tra
  }
 });
 
-test('week fits a compact calendar grid with three columns',()=>{
+test('week fits one Monday–Sunday calendar row',()=>{
  const camera=periodCamera(groupTransactions([],'2026-10-08','week').groups,{mode:'week',date:'2026-10-08',width:360,height:420});
  assert.equal(camera.labels.length,7);
- assert.equal(new Set(camera.labels.map(g=>g.x)).size,3);
- assert.equal(new Set(camera.labels.map(g=>g.y)).size,3);
+ assert.equal(new Set(camera.labels.map(g=>g.x)).size,7);
+ assert.equal(new Set(camera.labels.map(g=>g.y)).size,1);
  assert.ok(camera.labels.every(g=>g.x>0&&g.x<360&&g.y>0&&g.y<420));
+});
+
+test('zoom preserves every body, its opacity and proportional area across dates',()=>{
+ const items=[{id:'ten',date:'2026-10-05',amountCents:1000},{id:'thirty-nine',date:'2026-10-08',amountCents:3900},{id:'outside',date:'2026-09-01',amountCents:500}];
+ const field=new BubbleField();
+ for(const mode of ['month','week','day','month']){
+  field.reconcile(expenseBubbles([{items}],paymentColor,{mode,date:'2026-10-08',width:360,height:420}));
+  assert.equal(field.bodies.length,3);assert.ok(field.bodies.every(b=>!b.retired&&b.alpha===1&&b.targetAlpha===1));
+  for(let frame=0;frame<120;frame++){
+   field.step(1/60);
+   const a=field.bodies.find(b=>b.id==='ten'),b=field.bodies.find(b=>b.id==='thirty-nine');
+   assert.ok(Math.abs(b.r*b.r/(a.r*a.r)-3.9)<1e-8);
+   for(const circle of field.bodies)assert.equal(field.hit(circle.x,circle.y)?.id,circle.id);
+  }
+ }
+});
+test('touch padding never steals a tap inside another painted circle',()=>{
+ const field=new BubbleField();field.bodies=[{id:'small',x:10,y:10,r:1,alpha:1},{id:'large',x:35,y:10,r:20,alpha:1}];
+ assert.equal(field.hit(17,10)?.id,'large');assert.equal(field.hit(10,10)?.id,'small');
+});
+
+test('zoom and two-axis pan invert the painted coordinates at every part of a bubble',()=>{
+ const rect={left:20,top:180,width:360,height:420};
+ for(const zoom of [1,2.5,6])for(const point of [{x:180,y:150},{x:160,y:125},{x:200,y:175}]){
+  const pan=43,panY=-71;
+  const p=scenePoint({clientX:20+180+pan+(point.x-180)*zoom,clientY:180+210+panY+(point.y-210)*zoom},rect,{width:360,height:420,zoom,pan,panY});
+  assert.ok(Math.abs(p.x-point.x)<1e-9);assert.ok(Math.abs(p.y-point.y)<1e-9);
+ }
 });
