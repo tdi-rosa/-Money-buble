@@ -8,7 +8,7 @@ export class BubbleField {
     this.bodies=this.bodies.filter(b=>!b.retired||b.alpha>.015);
   }
   hit(x,y,touchRadius=22){
-    const visible=this.bodies.filter(b=>!b.retired&&b.alpha>.08);
+    const visible=this.bodies.filter(b=>!b.retired&&b.inPeriod!==false&&b.alpha>.08);
     const distance=b=>Math.hypot(x-b.x,y-b.y);
     const dragged=visible.find(b=>b.id===this.dragId);
     if(dragged&&distance(dragged)<=dragged.r)return dragged;
@@ -19,7 +19,7 @@ export class BubbleField {
 
 // Rebuild the broad phase after each projection: corrections can create new neighbours.
 export function resolveCollisions(bodies,{iterations=64,tolerance=.001,dragId=null}={}){
-  const visible=bodies.filter(b=>!b.retired&&b.alpha>=.1);
+  const visible=bodies.filter(b=>!b.retired&&b.inPeriod!==false&&b.alpha>=.1);
   if(visible.length<2)return;
   const cell=Math.max(12,...visible.map(b=>b.r*2+8));
   for(let iteration=0;iteration<iterations;iteration++){

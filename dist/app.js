@@ -21,38 +21,53 @@ const amount=n=>prefs.privacy?'••• €':euro(n),cat=t=>categories[category
 function title(){const {start,end}=bounds(selected,mode);if(mode==='day'){$('periodTitle').textContent=selected===today?"Aujourd'hui":dateFmt(selected,{weekday:'long'});$('periodSubtitle').textContent=dateFmt(selected,{day:'numeric',month:'long',year: 'numeric'})}else if(mode==='week'){$('periodTitle').textContent=start.slice(0,7)===end.slice(0,7)?`${Number(start.slice(-2))} – ${dateFmt(end,{day:'numeric',month:'short'})}`:`${dateFmt(start,{day:'numeric',month:'short'})} – ${dateFmt(end,{day:'numeric',month:'short'})}`;$('periodSubtitle').textContent='une semaine'}else{$('periodTitle').textContent=dateFmt(selected,{month:'long'});$('periodSubtitle').textContent=selected.slice(0,4)}$('datePicker').value=selected;$('backToday').hidden=bounds(today,mode).start===start;}
 function shortGroup(g){if(!g.inPeriod)return dateFmt(g.start,{day:'numeric',month:'short'});return mode==='week'?dateFmt(g.start,{weekday:'short',day:'numeric'}):String(Number(g.start.slice(-2)))}
 const layoutWorker=new Worker(new URL('./layout-worker.js',import.meta.url),{type:'module'});
-let layoutRevision=0,warmTimer=0;
+let layoutRevision=0,pendingNavigation=null;
 layoutWorker.onmessage=({data:result})=>{
   if(result.id!==layoutRevision)return;
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
   groups=result.groups;$('groupLabels').replaceChildren();
-  for(const g of groups){if(mode==='day'&&g.inPeriod)continue;
-    const b=document.createElement('button');b.className='group-label camera-label'+(g.items.length?'':' empty-group')+(g.inPeriod?'':' context-day');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.textContent=shortGroup(g);const total=document.createElement('small');total.className='day-spend';total.textContent=amount(sum(g.items));b.append(total);b.setAttribute('aria-label',`${shortGroup(g)}, ${amount(sum(g.items))}, ${g.items.length} dépenses. Ouvrir ce jour`);b.onclick=()=>drill(g);$('groupLabels').append(b);
+  for(const g of groups){if(mode==='day')continue;
+    const b=document.createElement('button');b.className='group-label camera-label'+(g.items.length?'':' empty-group')+(g.inPeriod?'':' context-day');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.style.width=`${Math.max(36,g.hitRect.right-g.hitRect.left-4)}px`;b.textContent=shortGroup(g);const total=document.createElement('small');total.className='day-spend';total.textContent=amount(sum(g.items));b.append(total);b.setAttribute('aria-label',`${shortGroup(g)}, ${amount(sum(g.items))}, ${g.items.length} dépenses. Ouvrir ce jour`);b.onclick=()=>drill(g);$('groupLabels').append(b);
   }
+  const navigation=pendingNavigation;pendingNavigation=null;
   field.reconcile(result.specs.map(s=>({...s,amountText:amount(s.transaction.amountCents)})));
+  if(navigation){
+    slide={...navigation,progress:0};
+    for(const b of field.bodies){b.x=b.tx;b.y=b.ty;b.r=b.targetR;b.alpha=1;}
+    pan=panTarget=panY=panYTarget=0;zoom=zoomTarget=1;
+  }
   if(prefs.motion){for(const b of field.bodies){b.x=b.tx;b.y=b.ty;b.r=b.targetR;b.alpha=b.targetAlpha;}field.bodies=field.bodies.filter(b=>!b.retired);}
   wake();
 
 };
 layoutWorker.onerror=()=>toast('Le calcul des bulles n’a pas pu démarrer. Réouvre l’application.');
-function refresh(){title();const displayed=displayPurchaseDates(data),undated=displayed.filter(t=>!validDate(t.date));$('undatedButton').hidden=!undated.length;$('undatedButton').textContent=undated.length+' achat'+(undated.length>1?'s':'')+' sans date d’achat';scene=groupTransactions(displayed,selected,mode);stage.style.minHeight='240px';$('spent').textContent=bankActive&&!scene.visible.length?'—':amount(sum(scene.visible));$('spentButton').setAttribute('aria-label',`${bankActive&&!scene.visible.length?'Aucun achat daté pour cette période':prefs.privacy?'Montant masqué':euro(sum(scene.visible))}. ${scene.visible.length} dépenses. Ouvrir la liste`);$('pendingBadge').hidden=!scene.visible.some(t=>t.status==='pending');$('estimatedBadge').hidden=!scene.visible.some(t=>t.dateBasis==='estimated');$('empty').hidden=scene.visible.length!==0;$('empty').querySelector('p').textContent=bankActive?(undated.length?'La banque n’a pas fourni la date de certains achats.':'Aucune opération reçue. Les paiements peuvent arriver plus tard.'):"Rien ici, pour l’instant.";$('sourceBadge').textContent=bankActive?(bankFresh?'BNP':'BNP · dernière synchro'):demo?'démo':'local';$('groupLabels').replaceChildren();
+function refresh(){title();const displayed=displayPurchaseDates(data),undated=displayed.filter(t=>!validDate(t.date));$('undatedButton').hidden=!undated.length;$('undatedButton').textContent=undated.length+' achat'+(undated.length>1?'s':'')+' sans date d’achat';scene=groupTransactions(displayed,selected,mode);const calendarRange=bounds(selected,'month'),calendarOffset=(new Date(calendarRange.start+'T12:00:00Z').getUTCDay()+6)%7;stage.style.minHeight=mode==='month'?`${Math.ceil((calendarOffset+Number(calendarRange.end.slice(-2)))/7)*70+32}px`:'240px';$('spent').textContent=bankActive&&!scene.visible.length?'—':amount(sum(scene.visible));$('spentButton').setAttribute('aria-label',`${bankActive&&!scene.visible.length?'Aucun achat daté pour cette période':prefs.privacy?'Montant masqué':euro(sum(scene.visible))}. ${scene.visible.length} dépenses. Ouvrir la liste`);$('pendingBadge').hidden=!scene.visible.some(t=>t.status==='pending');$('estimatedBadge').hidden=!scene.visible.some(t=>t.dateBasis==='estimated');$('empty').hidden=scene.visible.length!==0;$('empty').querySelector('p').textContent=bankActive?(undated.length?'La banque n’a pas fourni la date de certains achats.':'Aucune opération reçue. Les paiements peuvent arriver plus tard.'):"Rien ici, pour l’instant.";$('sourceBadge').textContent=bankActive?(bankFresh?'BNP':'BNP · dernière synchro'):demo?'démo':'local';$('groupLabels').replaceChildren();
   layoutWorker.postMessage({id:++layoutRevision,groups:[{items:displayed.filter(t=>validDate(t.date))}],options:{mode,date:selected,width:w,height:h}});
   updateWallet();syncPrefs();wake();
 }
 function drill(g,t){selected=t?.date||g.start;changeMode('day');haptic()}
-function changeMode(m){if(mode===m||slide)return;field.dragId=null;field.dragTarget=null;pointer=null;$('dragLabel').hidden=true;mode=m;panTarget=panYTarget=0;zoomTarget=1;animateHeader();for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-pressed',b.dataset.mode===m?'true':'false');$('modeIndicator').style.transform=`translateX(${['day','week','month'].indexOf(m)*100}%)`;refresh()}
+function changeMode(m){if(mode===m||slide||pendingNavigation)return;field.dragId=null;field.dragTarget=null;pointer=null;$('dragLabel').hidden=true;mode=m;panTarget=panYTarget=0;zoomTarget=1;animateHeader();for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-pressed',b.dataset.mode===m?'true':'false');$('modeIndicator').style.transform=`translateX(${['day','week','month'].indexOf(m)*100}%)`;refresh()}
 const modes=['day','week','month'];
 let slide=null,pan=0,panTarget=0,panY=0,panYTarget=0,zoom=1,zoomTarget=1,pinch=null;
 const touches=new Map();$('recenter').onclick=()=>{panTarget=panYTarget=0;zoomTarget=1;wake();};
 function animateHeader(direction=1){if(prefs.motion)return;for(const id of ['dateButton','spentButton']){const el=$(id);for(const a of el.getAnimations())a.cancel();el.animate([{opacity:0,transform:`translateX(${direction*24}px)`},{opacity:1,transform:'translateX(0)'}],{duration:420,easing:'cubic-bezier(.22,1,.36,1)'});}}
-function goTo(date,direction=1){if(date===selected)return;selected=date;panTarget=panYTarget=0;zoomTarget=1;refresh();animateHeader(direction);haptic();dismissHint();}
+function goTo(date,direction=1){
+  if(date===selected||slide||pendingNavigation)return;
+  if(!prefs.motion){
+    const labels=$('groupLabels').cloneNode(true),empty=$('empty').cloneNode(true);
+    labels.removeAttribute('id');labels.classList.add('outgoing-labels');labels.inert=true;stage.append(labels);
+    empty.removeAttribute('id');empty.classList.add('outgoing-empty');stage.append(empty);
+    pendingNavigation={bodies:field.bodies.filter(b=>b.inPeriod).map(b=>({...b,x:w/2+pan+(b.x-w/2)*zoom,y:h/2+panY+(b.y-h/2)*zoom,r:b.r*zoom})),labels,empty,direction,offset:0};
+  }
+  selected=date;panTarget=panYTarget=0;zoomTarget=1;refresh();animateHeader(direction);haptic();dismissHint();
+}
 function travel(direction){if(slide)return;goTo(navigate(selected,mode,direction),direction);}
 
 function paintBodies(bodies,offset=0,opacity=1){
   ctx.save();ctx.translate(w/2+offset,h/2+panY);ctx.scale(zoom,zoom);ctx.translate(-w/2,-h/2);
   const dragged=bodies.find(b=>b.id===field.dragId);
-  for(const b of [...bodies.filter(b=>b!==dragged),...(dragged?[dragged]:[])]){if(b.alpha<.01)continue;ctx.globalAlpha=b.alpha*opacity;ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(b.x,b.y,Math.max(0,b.r),0,Math.PI*2);ctx.fill();
-    if(b.r*zoom>=21){ctx.fillStyle='#ffffff';ctx.textAlign='center';ctx.textBaseline='middle';const t=b.transaction;ctx.font=`500 ${Math.min(22,b.r*.32)}px system-ui`;ctx.fillText(b.amountText??amount(t.amountCents),b.x,b.y-(b.r>48?5:0));if(b.r>48){ctx.font=`400 ${Math.min(12,b.r*.16)}px system-ui`;const name=t.merchant.length>16?t.merchant.slice(0,14)+'…':t.merchant;ctx.fillText(name,b.x,b.y+18);}}}
+  for(const b of [...bodies.filter(b=>b!==dragged),...(dragged?[dragged]:[])]){if(b.alpha<.01||(!b.inPeriod&&(slide||Math.hypot(b.x-b.tx,b.y-b.ty)<1)))continue;ctx.globalAlpha=b.alpha*opacity;ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(b.x,b.y,Math.max(0,b.r),0,Math.PI*2);ctx.fill();
+    if(mode==='day'&&b.inPeriod&&b.r*zoom>=21){ctx.fillStyle='#ffffff';ctx.textAlign='center';ctx.textBaseline='middle';const t=b.transaction;ctx.font=`500 ${Math.min(22,b.r*.32)}px system-ui`;ctx.fillText(b.amountText??amount(t.amountCents),b.x,b.y-(b.r>48?5:0));if(b.r>48){ctx.font=`400 ${Math.min(12,b.r*.16)}px system-ui`;const name=t.merchant.length>16?t.merchant.slice(0,14)+'…':t.merchant;ctx.fillText(name,b.x,b.y+18);}}}
   ctx.restore();
 }
 function draw(){ctx.clearRect(0,0,w,h);let offset=pan;if(slide){const t=slide.progress,e=1-Math.pow(1-t,4);offset=slide.direction*w*(1-e);const oldOffset=slide.offset-(slide.direction*w+slide.offset)*e;paintBodies(slide.bodies,oldOffset);slide.labels.style.transform=`translateX(${oldOffset}px)`;slide.empty.style.transform=`translateX(${oldOffset}px)`;slide.empty.style.opacity=String(1-e);}
@@ -69,7 +84,7 @@ function haptic(){if(prefs.haptics&&navigator.vibrate)navigator.vibrate(8)}funct
 function pinchCenter(){const [a,b]=[...touches.values()];return {x:(a.x+b.x)/2,y:(a.y+b.y)/2};}
 function pinchDistance(){const [a,b]=[...touches.values()];return Math.hypot(a.x-b.x,a.y-b.y);}
 canvas.addEventListener('pointerdown',e=>{
-  if(e.button>0||slide)return;const p=point(e);touches.set(e.pointerId,p);canvas.setPointerCapture(e.pointerId);
+  if(e.button>0||slide||pendingNavigation)return;const p=point(e);touches.set(e.pointerId,p);canvas.setPointerCapture(e.pointerId);
   if(touches.size===2){field.dragId=null;field.dragTarget=null;pointer=null;$('dragLabel').hidden=true;const midpoint=pinchCenter();pinch={distance:pinchDistance(),zoom,anchor:scenePoint({clientX:midpoint.x,clientY:midpoint.y},{left:0,top:0,width:w,height:h},{width:w,height:h,zoom,pan,panY}),changed:false};dismissHint();wake();return;}
   if(touches.size!==1)return;const hit=hitPoint(e),body=field.hit(hit.x,hit.y,22/Math.max(.01,zoom));pointer={id:e.pointerId,startX:p.x,startY:p.y,x:p.x,y:p.y,body,moved:false,startPan:pan,startPanY:panY,exploring:zoom>1.06};wake();
 });
@@ -88,7 +103,7 @@ canvas.addEventListener('pointermove',e=>{
 function endPointer(e,cancelled=false){touches.delete(e.pointerId);if(pinch){if(!touches.size){pinch=null;if(zoomTarget<1){zoomTarget=1;panTarget=panYTarget=0;}}wake();return;}
   if(!pointer||e.pointerId!==pointer.id)return;const p=pointer;pointer=null;field.dragId=null;field.dragTarget=null;$('dragLabel').hidden=true;
   const hit=hitPoint(e),body=field.hit(hit.x,hit.y,22/Math.max(.01,zoom))||p.body;
-  const group=groups.find(g=>g.id===body?.groupId)||groups.find(g=>Math.abs(hit.x-g.x)<=Math.max(22,g.maxR)&&Math.abs(hit.y-g.y)<=Math.max(22,g.maxR));
+  const group=groups.find(g=>g.id===body?.groupId)||groups.find(g=>hit.x>=g.hitRect.left&&hit.x<=g.hitRect.right&&hit.y>=g.hitRect.top&&hit.y<=g.hitRect.bottom);
   const action=p.exploring&&p.moved?'none':gestureAction({dx:p.x-p.startX,dy:p.y-p.startY,moved:p.moved,mode,body,group,cancelled});
   if(action==='next')travel(1);else if(action==='previous')travel(-1);else if(action==='drill')drill(group,body?.transaction);else if(action==='detail')openDetail(body.transaction);
   if(!p.exploring)panTarget=0;if(prefs.motion){for(let i=0;i<240;i++)field.step(1/60)}wake();
