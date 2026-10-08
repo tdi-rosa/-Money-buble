@@ -53,3 +53,9 @@ test('an arrival switches to the gentle living cloud after contact, without swal
  const f=new BubbleField();f.bodies=[{id:'anchor',x:0,y:0,tx:0,ty:0,centerX:0,centerY:0,cluster:true,arriving:false,inPeriod:true,r:20,targetR:20,collisionGap:1},{id:'new',x:200,y:0,tx:40,ty:0,centerX:0,centerY:0,cluster:true,arriving:true,inPeriod:true,r:15,targetR:15,travelSpeed:450,collisionGap:1}];
  for(let i=0;i<300;i++)f.stepLive(1/120,{organic:true});assert.equal(f.bodies[1].arriving,false);assert.ok(Math.hypot(f.bodies[0].x-f.bodies[1].x,f.bodies[0].y-f.bodies[1].y)>=35);assert.equal(f.bodies.length,2);
 });
+test('retained distant bubbles regroup rapidly in both month-to-week and week-to-day contractions',()=>{
+ for(const transition of ['month→week','week→day']){
+ const f=new BubbleField();f.bodies=[{id:transition,x:300,y:0,tx:30,ty:0,centerX:0,centerY:0,cluster:true,inPeriod:true,arriving:false,gatheringUntil:.85,r:10,targetR:10,travelSpeed:450}];
+ const start=f.bodies[0].x;for(let i=0;i<90;i++)f.stepLive(1/120);assert.ok(f.bodies[0].x<start*.15,'a retained circle must not use the slow resting attraction during contraction');
+ }
+});

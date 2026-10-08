@@ -35,11 +35,10 @@ export class FluidGauge {
   }
   update(value,{privacy=false,reduced=false,format}={}){
     const ratio=privacy ? .5 : (value?.ratio??0),old=this.previous;
-    const changed=old&&value&&old.amount!==value.amount;
-    this.cue.textContent=changed&&!privacy?(value.amount>old.amount?'+':'−')+format(Math.abs(value.amount-old.amount)):'';
-    this.cue.title='Variation depuis la période précédente';this.cue.classList.toggle('visible',!!this.cue.textContent);
-    clearTimeout(this.cueTimer);this.cueTimer=setTimeout(()=>this.cue.classList.remove('visible'),3000);
-    this.marker.hidden=!changed||privacy||!old.reference||!value.reference||old.reference!==value.reference;
+    const changed=old&&value&&Math.abs((old.ratio??0)-(value.ratio??0))>1e-8;
+    this.cue.textContent=value&&!privacy?'−'+format(value.spent??0):'';
+    this.cue.title='Somme des bulles affichées : partie vide';this.cue.classList.toggle('visible',!!this.cue.textContent);
+    this.marker.hidden=!changed||privacy||!old.reference||!value.reference;
     this.marker.style.left=(old?.ratio??0)*100+'%';this.marker.classList.toggle('visible',!this.marker.hidden);
     clearTimeout(this.markerTimer);this.markerTimer=setTimeout(()=>this.marker.classList.remove('visible'),2400);
     this.previous=value;cancelAnimationFrame(this.raf);this.raf=0;this.last=0;

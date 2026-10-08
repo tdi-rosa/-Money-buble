@@ -30,7 +30,7 @@ export class BubbleField {
           const amplitude=organic&&b.inPeriod!==false?Math.min(4/Math.max(.01,pixelScale),Math.max(1/Math.max(.01,pixelScale),b.r*.22)):0,phase=b.phase??0;
           const clustering=b.cluster&&b.inPeriod!==false;
           const x=(clustering?b.centerX:b.motionX??b.tx)+Math.sin(this.time*.9+phase)*amplitude,y=(clustering?b.centerY:b.motionY??b.ty)+Math.cos(this.time*.7+phase)*amplitude,arriving=clustering&&(b.arriving===true||(b.arriving===undefined&&Math.hypot(b.x-b.centerX,b.y-b.centerY)>Math.hypot(b.tx-b.centerX,b.ty-b.centerY)+b.r*2+20)),
-            damping=Math.exp(-(arriving?12:clustering?5:12)*delta),spring=arriving||b.departing?35:clustering?1:55;
+            gathering=clustering&&this.time<(b.gatheringUntil??0),damping=Math.exp(-(arriving||gathering?12:clustering?5:12)*delta),spring=arriving||gathering||b.departing?35:clustering?1:55;
           b.vx=(b.vx+(x-b.x)*spring*delta)*damping;b.vy=(b.vy+(y-b.y)*spring*delta)*damping;
           const speed=Math.hypot(b.vx,b.vy),limit=b.travelSpeed/Math.max(.05,pixelScale);if(b.travelSpeed&&speed>limit){b.vx*=limit/speed;b.vy*=limit/speed;}
           b.x+=b.vx*delta;b.y+=b.vy*delta;

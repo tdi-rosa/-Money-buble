@@ -1,3 +1,9 @@
+## 0.7.6
+
+- Le vide représente exactement la somme de l’amas affiché ; le maximum vaut le solde restant à cette date plus ces dépenses.
+- Supprime le repère indépendant basé sur un apport et son réglage manuel. Le solde historique reste reconstruit avec les entrées et sorties reçues.
+- Les bulles conservées lors d’une contraction bénéficient aussi de l’attraction de regroupement, puis retrouvent la physique douce après la transition.
+
 ## 0.7.5
 
 - Pincement limité à 0,6×–6× dans chaque mode ; déplacement à deux doigts et inversion continue, sans changer de période.
