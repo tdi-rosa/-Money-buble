@@ -23,6 +23,19 @@ function title(){const {start,end}=bounds(selected,mode);if(mode==='day'){$('per
 const layoutWorker=new Worker(new URL('./layout-worker.js',import.meta.url),{type:'module'});
 let layoutRevision=0,pendingNavigation=null,layoutPayload=null,lastLayoutData=null,lastLayoutSize='',transactionsById=new Map(),levelFit={day:1,week:.5,month:.25};
 const previews=new Map(),layouts=new Map(),bodyPool=new Map();
+const simulationWorker=new Worker(new URL('./simulation-worker.js',import.meta.url),{type:'module'});
+let simulationRevision=0,simulationBodies=null,simulationPositions=null,simulationRunning=false;
+simulationWorker.onmessage=({data:result})=>{if(result.revision===simulationRevision){simulationPositions=result.positions;wake();}};
+function simulate(elapsed,scale,organic){
+  if(field.bodies.length<=250){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;}return field.stepLive(elapsed,{pixelScale:scale,organic});}
+  const message={running:true,options:{pixelScale:scale,organic},dragId:field.dragId,dragTarget:field.dragTarget};
+  if(simulationBodies!==field.bodies){simulationBodies=field.bodies;simulationPositions=null;message.revision=++simulationRevision;message.time=field.time||0;
+    message.bodies=field.bodies.map(({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase})=>({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase}));}
+  simulationWorker.postMessage(message);simulationRunning=true;
+  if(simulationPositions){const follow=1-Math.exp(-20*elapsed);for(let i=0;i<field.bodies.length;i++){const b=field.bodies[i];b.x+=(simulationPositions[i*4]-b.x)*follow;b.y+=(simulationPositions[i*4+1]-b.y)*follow;b.vx=simulationPositions[i*4+2];b.vy=simulationPositions[i*4+3];}}
+  return true;
+}
+function pauseSimulation(){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;simulationBodies=null;}}
 function receiveLayout(result){
   if(result.id!==layoutRevision)return;
   if(!result.error)result.specs=result.specs.map(s=>({...s,transaction:transactionsById.get(s.id)||s.transaction,color:bubbleColor(transactionsById.get(s.id)||s.transaction)}));
@@ -30,7 +43,7 @@ function receiveLayout(result){
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
   levelFit=result.fitByMode||levelFit;layouts.set(mode+':'+selected,result);
   const navigation=pendingNavigation;pendingNavigation=null;
-  if(navigation||prefs.motion){field.bodies=result.specs.map(s=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,retired:false,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;join=null;if(navigation)slide={...navigation,progress:0};}
+  if(navigation||prefs.motion){field.bodies=result.specs.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,phase:i*2.3999632297,retired:false,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;join=null;if(navigation)slide={...navigation,progress:0};}
   else beginJoin(result);
   if(layoutPayload){
     const requests=[{mode,date:navigate(selected,mode,-1)},{mode,date:navigate(selected,mode,1)},...modes.filter(m=>m!==mode).map(mode=>({mode,date:selected}))];
@@ -65,24 +78,22 @@ function screenSnapshot(){
   return [...circles.values()];
 }
 function beginJoin(result){
-  const previous=new Map(field.bodies.map(b=>[b.id,b])),active=new Set(result.specs.map(s=>s.id)),arriving=[],leaving=[],pinned=[];
-  let minDistance=Infinity;
-  for(const s of result.specs){const old=previous.get(s.id),b=old||bodyPool.get(s.id)||{};
-    const from=old?{x:old.x,y:old.y}:null;Object.assign(b,s,{r:s.targetR,alpha:1,retired:false,vx:b.vx||0,vy:b.vy||0,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);
-    if(from&&Math.hypot(from.x-s.tx,from.y-s.ty)<.01){b.motionX=s.tx;b.motionY=s.ty;pinned.push(b);}
-    else {const d=Math.hypot(s.groupX,s.groupY);if(d>.01)minDistance=Math.min(minDistance,d);arriving.push({body:b,from});}
-  }
-  const spread=Math.max(3,Math.min(60,(Math.max(w,h)/Math.max(.01,fitZoom)+80)/Math.max(10,minDistance)+2));
-  for(const p of arriving){const b=p.body;p.from||={x:b.tx+b.groupX*(spread-1),y:b.ty+b.groupY*(spread-1)};b.x=p.from.x;b.y=p.from.y;b.motionX=b.x;b.motionY=b.y;}
+  const previous=new Map(field.bodies.map(b=>[b.id,b])),active=new Set(result.specs.map(s=>s.id)),leaving=[];
+  const bodies=result.specs.map((s,i)=>{
+    const old=previous.get(s.id),b=old||bodyPool.get(s.id)||{};
+    let x=old?.x,y=old?.y;
+    if(!old){const angle=i*2.3999632297,dx=s.tx-w/2,dy=s.ty-h/2,length=Math.hypot(dx,dy),reach=Math.max(w,h)/Math.max(.05,fitZoom)+s.targetR*2;
+      x=w/2+(length>1?dx/length:Math.cos(angle))*reach;y=h/2+(length>1?dy/length:Math.sin(angle))*reach;
+      if(!previous.size){x=s.tx+Math.cos(angle)*Math.min(14,s.targetR*.25);y=s.ty+Math.sin(angle)*Math.min(14,s.targetR*.25);}
+    }
+    Object.assign(b,s,{x,y,motionX:s.tx,motionY:s.ty,r:s.targetR,alpha:1,retired:false,vx:b.vx||0,vy:b.vy||0,phase:i*2.3999632297,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;
+  });
   for(const b of previous.values())if(!active.has(b.id)){
-    let gx=mode==='day'?b.dayX:b.groupX,gy=mode==='day'?b.dayY:b.groupY;if(Math.hypot(gx,gy)<.01){gx=b.x-w/2||1;gy=b.y-h/2;}
-    const length=Math.hypot(gx,gy)||1,reach=Math.max(w,h)/Math.max(.01,result.fitZoom)*2;
-    leaving.push({body:b,from:{x:b.x,y:b.y},to:{x:b.x+gx/length*reach,y:b.y+gy/length*reach}});b.inPeriod=false;
+    const dx=b.x-w/2,dy=b.y-h/2,length=Math.hypot(dx,dy)||1,reach=Math.max(w,h)/Math.max(.05,result.fitZoom)*2;
+    b.motionX=w/2+(dx||1)/length*reach;b.motionY=h/2+dy/length*reach;b.inPeriod=false;leaving.push(b);
   }
-  field.bodies=[...pinned,...arriving.map(p=>p.body),...leaving.map(p=>p.body)];
-  field.settled=false;fitTarget=result.fitZoom;
-  if(!arriving.length&&!leaving.length&&Math.abs(fitZoom-fitTarget)<.00001){join=null;return;}
-  join={arriving,leaving,progress:0,fromFit:fitZoom,toFit:fitTarget,duration:.42};
+  field.bodies=[...bodies,...leaving];field.settled=false;fitTarget=result.fitZoom;
+  join={progress:0,fromFit:fitZoom,toFit:fitTarget,duration:.85};
 }
 function adoptScreen(){
   // Freeze the present frame without changing the canonical circle geometry.
@@ -137,17 +148,19 @@ function frame(timestamp){
   pan+=(panTarget-pan)*ease;panY+=(panYTarget-panY)*ease;zoom+=(zoomTarget-zoom)*ease;
   if(join&&!dragScene&&!pendingNavigation){
     join.progress=Math.min(1,join.progress+elapsed/join.duration);const t=1-Math.pow(1-join.progress,3);
-    // The origin stays fixed. The common camera changes while entire incoming
-    // day/week groups approach; shared circles never change their local shape.
+    // Only the camera interpolates. Body positions come from springs and contacts.
     fitZoom=1/((1/join.fromFit)*(1-t)+(1/join.toFit)*t);
-    for(const p of [...join.arriving,...join.leaving]){
-      const b=p.body,target=p.to||{x:b.tx,y:b.ty},x=p.from.x+(target.x-p.from.x)*t,y=p.from.y+(target.y-p.from.y)*t;
-      b.x+=x-(b.motionX??b.x);b.y+=y-(b.motionY??b.y);b.motionX=x;b.motionY=y;
-    }
     if(join.progress===1){field.bodies=field.bodies.filter(b=>b.inPeriod);fitZoom=fitTarget;join=null;}
   }
-  const scale=Math.max(.01,zoom*fitZoom),viewport={left:w/2+(-pan-w/2)/scale,right:w/2+(w-pan-w/2)/scale,top:h/2+(-panY-h/2)/scale,bottom:h/2+(h-panY-h/2)/scale};
-  const physical=!dragScene&&!pendingNavigation&&!slide&&field.stepLive(elapsed,{viewport,pixelScale:scale});
+  const scale=Math.max(.01,zoom*fitZoom);
+  const physical=(!prefs.motion||bubbleDrag)&&!dragScene&&!pendingNavigation&&!slide&&simulate(elapsed,scale,!prefs.motion&&!join);
+  if(!physical)pauseSimulation();
+  // Follow the actual physical envelope, keeping the centre fixed during a join.
+  if(!join&&!bubbleDrag&&!pointer&&!pinch&&!dragScene&&!slide&&!pendingNavigation){
+    let rx=1,ry=1;for(const b of field.bodies){if(!b.inPeriod)continue;rx=Math.max(rx,Math.abs(b.x-w/2)+b.r);ry=Math.max(ry,Math.abs(b.y-h/2)+b.r);}
+    const cropped=Math.min(1,Math.max(1,w-40)/(2*(rx+6)),Math.max(1,h-48)/(2*(ry+6)));
+    fitZoom+=(cropped-fitZoom)*(1-Math.exp(-7*elapsed));
+  }
   draw();$('recenter').hidden=zoomTarget<=1.04&&Math.abs(panTarget)<2&&Math.abs(panYTarget)<2;
   if(physical||returningSwipe||slide||(join&&!dragScene&&!pendingNavigation)||Math.abs(pan-panTarget)>.05||Math.abs(panY-panYTarget)>.05||Math.abs(zoom-zoomTarget)>.001)raf=requestAnimationFrame(frame);
 }
@@ -157,7 +170,7 @@ function resize(){const r=stage.getBoundingClientRect(),oldW=w,oldH=h;if(canvas.
   for(const b of field.bodies){b.x*=w/oldW;b.y*=h/oldH}field.resize(w,h);refresh();
 }
 new ResizeObserver(resize).observe(stage);
-document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseBubble();if(raf)cancelAnimationFrame(raf);raf=0;gestures.reset();inputState();dragScene=null;swipeOffset=0;panTarget=panYTarget=0;zoomTarget=1;}else wake()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){pauseSimulation();releaseBubble();if(raf)cancelAnimationFrame(raf);raf=0;gestures.reset();inputState();dragScene=null;swipeOffset=0;panTarget=panYTarget=0;zoomTarget=1;}else wake()});
 function point(e){const r=canvas.getBoundingClientRect();return {x:(e.clientX-r.left)*w/Math.max(1,r.width),y:(e.clientY-r.top)*h/Math.max(1,r.height)}}
 function haptic(){if(prefs.haptics&&navigator.vibrate)navigator.vibrate(8)}function dismissHint(){$('gestureHint').style.opacity='0';}
 canvas.addEventListener('pointerdown',e=>{

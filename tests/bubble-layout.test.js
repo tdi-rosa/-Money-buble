@@ -76,7 +76,7 @@ test('zoom preserves every body, its opacity and proportional area across dates'
   field.reconcile(expenseBubbles([{items}],paymentColor,{mode,date:'2026-10-08',width:360,height:420}));
   assert.equal(field.bodies.length,3);assert.ok(field.bodies.every(b=>!b.retired&&b.alpha===1&&b.targetAlpha===1));
   for(let frame=0;frame<120;frame++){
-   field.step(1/60);
+   field.stepLive(1/60);
    const a=field.bodies.find(b=>b.id==='ten'),b=field.bodies.find(b=>b.id==='thirty-nine');
    assert.ok(Math.abs(b.r*b.r/(a.r*a.r)-3.9)<1e-8);
    for(const circle of field.bodies.filter(b=>b.inPeriod))assert.equal(field.hit(circle.x,circle.y)?.id,circle.id);

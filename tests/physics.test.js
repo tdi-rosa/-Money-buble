@@ -27,3 +27,11 @@ test('radius tiers resolve giant and tiny contacts across negative and distant g
  resolveCollisions(bodies);assert.ok(Math.hypot(bodies[0].x-bodies[1].x,bodies[0].y-bodies[1].y)>=1004-.01);
  assert.equal(bodies[2].x,200000);assert.equal(bodies[2].y,900000);
 });
+
+test('organic physics continues moving at rest and respects reduced motion',()=>{
+ const f=new BubbleField();f.bodies=[{id:'living',x:100,y:100,tx:100,ty:100,r:25,targetR:25,alpha:1,inPeriod:true}];
+ for(let i=0;i<180;i++)assert.equal(f.stepLive(1/60,{organic:true}),true);
+ const from={x:f.bodies[0].x,y:f.bodies[0].y};for(let i=0;i<120;i++)f.stepLive(1/60,{organic:true});
+ assert.ok(Math.hypot(f.bodies[0].x-from.x,f.bodies[0].y-from.y)>2,'resting bubbles visibly drift instead of freezing');assert.equal(f.bodies[0].r,25);
+ for(let i=0;i<400;i++)f.stepLive(1/60,{organic:false});assert.ok(f.settled);
+});

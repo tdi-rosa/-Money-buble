@@ -1,3 +1,10 @@
+## 0.7.3
+
+- Supprime les amas imbriqués par jour/semaine : toutes les dépenses se réunissent en un seul amas compact.
+- Simulation continue, attraction centrale, dérive douce et collisions : les bulles ne sont plus attachées à des positions individuelles.
+- Cadrage sur les limites réelles de l’amas, avec dézoom depuis le centre et surfaces proportionnelles.
+- Placement initial par front-chain, mis en cache ; la simulation des gros historiques tourne dans un worker séparé pour garder les gestes réactifs.
+
 ## 0.7.2
 
 - Rétablit les ressorts, les collisions et le déplacement des bulles au doigt.

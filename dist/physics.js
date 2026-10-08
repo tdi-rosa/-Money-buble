@@ -14,8 +14,9 @@ export class BubbleField {
     if(this.settled)for(const b of this.bodies){b.x=b.tx;b.y=b.ty;b.r=b.targetR;b.alpha=b.targetAlpha;b.vx=b.vy=0;}
   }
   // Live springs operate in world space. The camera never changes physical radii.
-  stepLive(dt,{viewport=null,pixelScale=1}={}){
+  stepLive(dt,{viewport=null,pixelScale=1,organic=false}={}){
     const steps=Math.max(1,Math.ceil(Math.min(.05,Math.max(0,dt))*60)),delta=Math.min(.05,Math.max(0,dt))/steps;
+    this.time=(this.time||0)+dt;
     const tolerance=.025/Math.max(.01,pixelScale);let contactError=0;
     for(let step=0;step<steps;step++){
       for(const b of this.bodies){
@@ -26,15 +27,18 @@ export class BubbleField {
           b.x+=(this.dragTarget.x-b.x)*follow;b.y+=(this.dragTarget.y-b.y)*follow;
           b.vx=(b.x-oldX)/Math.max(delta,.001)*.25;b.vy=(b.y-oldY)/Math.max(delta,.001)*.25;
         }else{
-          const x=b.motionX??b.tx,y=b.motionY??b.ty,damping=Math.exp(-18*delta);
-          b.vx=(b.vx+(x-b.x)*90*delta)*damping;b.vy=(b.vy+(y-b.y)*90*delta)*damping;
+          const amplitude=organic&&b.inPeriod!==false?Math.min(4/Math.max(.01,pixelScale),Math.max(1/Math.max(.01,pixelScale),b.r*.22)):0,phase=b.phase??0;
+          const clustering=b.cluster&&b.inPeriod!==false;
+          const x=(clustering?b.centerX:b.motionX??b.tx)+Math.sin(this.time*.9+phase)*amplitude,y=(clustering?b.centerY:b.motionY??b.ty)+Math.cos(this.time*.7+phase)*amplitude,arriving=clustering&&Math.hypot(b.x-b.centerX,b.y-b.centerY)>Math.hypot(b.tx-b.centerX,b.ty-b.centerY)+b.r*2+20,
+            damping=Math.exp(-(arriving?12:clustering?5:12)*delta),spring=arriving?35:clustering?1:55;
+          b.vx=(b.vx+(x-b.x)*spring*delta)*damping;b.vy=(b.vy+(y-b.y)*spring*delta)*damping;
           b.x+=b.vx*delta;b.y+=b.vy*delta;
         }
       }
       const local=viewport?this.bodies.filter(b=>b.x+b.r>=viewport.left&&b.x-b.r<=viewport.right&&b.y+b.r>=viewport.top&&b.y-b.r<=viewport.bottom):this.bodies;
       contactError=resolveLiveContacts(local,{tolerance,dragId:this.dragId});
     }
-    this.settled=!this.dragId&&contactError<=tolerance&&this.bodies.every(b=>
+    this.settled=!organic&&!this.dragId&&contactError<=tolerance&&this.bodies.every(b=>
       Math.hypot(b.x-(b.motionX??b.tx),b.y-(b.motionY??b.ty))<.08/Math.max(.01,pixelScale)&&Math.hypot(b.vx,b.vy)<.15/Math.max(.01,pixelScale));
     return !this.settled;
   }
@@ -86,7 +90,7 @@ export function resolveCollisions(bodies,{iterations=64,tolerance=.001,dragId=nu
 function resolveLiveContacts(bodies,{tolerance,dragId}){
   const active=new Set(bodies.filter(b=>b.id===dragId||Math.hypot(b.vx,b.vy)>tolerance||Math.hypot(b.x-(b.motionX??b.tx),b.y-(b.motionY??b.ty))>tolerance));
   if(!active.size)return 0;let residual=0;
-  for(let iteration=0;iteration<3;iteration++){
+  for(let iteration=0;iteration<(bodies.length<=200?8:3);iteration++){
     const tiers=new Map();
     for(const b of bodies){const level=Math.ceil(Math.log2(Math.max(4,b.r*2+(b.collisionGap??2)))),cell=2**level;
       if(!tiers.has(level))tiers.set(level,new Map());const grid=tiers.get(level),key=Math.floor(b.x/cell)+':'+Math.floor(b.y/cell);
