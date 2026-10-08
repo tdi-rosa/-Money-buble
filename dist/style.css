@@ -27,3 +27,6 @@
 
 /* A small, coherent payment palette on a white surface. */
 :root{--green:#5263ad}.logo i:first-child{background:#5263ad}.logo i:nth-child(2){background:#343b50}.logo i:last-child{background:#926951}#modeIndicator,.primary{background:#5263ad}.secondary,.back-today{color:#495998;background:#eff1f8}#gaugeFill,.wallet.low #gaugeFill{background:#5263ad}.wallet.negative #gaugeFill{background:#926951}.setting-row input{accent-color:#5263ad}.feelings button.chosen,.category-pick button.selected{background:#eff1f8}.category-pick button:focus-visible,button:focus-visible,a:focus-visible,input:focus-visible{outline-color:#5263ad}.payment-legend{gap:16px}.detail-icon,.mini-icon{color:#fff}
+
+/* Dense histories retain every 44px bubble and can scroll vertically. */
+.app{overflow-y:auto}.stage{flex-shrink:0}canvas{touch-action:pan-y}

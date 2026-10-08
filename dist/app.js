@@ -1,7 +1,7 @@
-import {bubbleRadii,MIN_RADIUS,gestureAction,scenePoint} from './bubble-layout.js';
+import {expenseBubbles,MIN_RADIUS,gestureAction,scenePoint} from './bubble-layout.js';
 import {openBankWindow} from './bank-window.js';
 import {bankSnapshot} from './bank-state.js';
-import {categories,paymentKinds,paymentColor,overviewPaymentKind,merchantKey,euro,dateKey,shiftDate,validateImport,demoData,validDate,mergePurchaseDates,displayPurchaseDates} from './core.js';
+import {categories,paymentKinds,paymentColor,merchantKey,euro,dateKey,shiftDate,validateImport,demoData,validDate,mergePurchaseDates,displayPurchaseDates} from './core.js';
 import {BubbleField} from './physics.js';
 import {autoUpdates,releaseBusy} from './updates.js';
 import {bounds,navigate,groupTransactions,sum} from './periods.js';
@@ -19,31 +19,22 @@ const merchantRules=read(keys.merchantRules,{});
 const categoryKey=t=>notes[t.id]?.category||(Object.hasOwn(categories,merchantRules?.[merchantKey(t.merchant)])?merchantRules[merchantKey(t.merchant)]:t.category),bubbleColor=paymentColor;
 const amount=n=>prefs.privacy?'••• €':euro(n),cat=t=>categories[categoryKey(t)]||categories.other,dateFmt=(d,opts)=>new Intl.DateTimeFormat('fr-FR',{...opts,timeZone:'Europe/Paris'}).format(new Date(d+'T12:00:00Z'));
 function title(){const {start,end}=bounds(selected,mode);if(mode==='day'){$('periodTitle').textContent=selected===today?"Aujourd'hui":dateFmt(selected,{weekday:'long'});$('periodSubtitle').textContent=dateFmt(selected,{day:'numeric',month:'long',year: 'numeric'})}else if(mode==='week'){$('periodTitle').textContent=start.slice(0,7)===end.slice(0,7)?`${Number(start.slice(-2))} – ${dateFmt(end,{day:'numeric',month:'short'})}`:`${dateFmt(start,{day:'numeric',month:'short'})} – ${dateFmt(end,{day:'numeric',month:'short'})}`;$('periodSubtitle').textContent='une semaine'}else{$('periodTitle').textContent=dateFmt(selected,{month:'long'});$('periodSubtitle').textContent=selected.slice(0,4)}$('datePicker').value=selected;$('backToday').hidden=bounds(today,mode).start===start;}
-function shortGroup(g){return mode==='week'?dateFmt(g.start,{weekday:'short',day:'numeric'}):String(Number(g.start.slice(-2)))}
+function shortGroup(g){return mode==='week'?dateFmt(g.start,{weekday:'short',day:'numeric'}):`${Number(g.start.slice(-2))} – ${dateFmt(g.end,{day:'numeric',month:'short'})}`}
 function layoutGroups(input){
-  stage.style.minHeight=mode==='month'?'360px':mode==='week'?'220px':'240px';
-  if(mode==='day')return input.map(g=>({...g,x:w/2,y:h*.47,maxR:Math.max(50,Math.min(w*.43,h*.39))}));
-  const columns=mode==='month'?Math.max(1,Math.min(7,Math.floor((w-12)/50))):Math.max(1,Math.min(4,Math.floor((w-12)/70))),leading=mode==='month'&&columns===7?(new Date(input[0].start+'T12:00:00Z').getUTCDay()+6)%7:0,rows=Math.ceil((input.length+leading)/columns),cellW=(w-12)/columns,cellH=(h-30)/rows;
-  stage.style.minHeight=`${Math.max(mode==='month'?360:220,rows*56+30)}px`;
-  return input.map((g,i)=>{const n=i+leading;return {...g,x:6+(n%columns+.5)*cellW,y:10+(Math.floor(n/columns)+.5)*cellH,maxR:Math.max(MIN_RADIUS,Math.min(cellW*.43,cellH*.43))}});
+  const columns=mode==='day'?1:Math.min(input.length,w>600?3:2),cellW=w/columns,rows=Math.ceil(input.length/columns);
+  const rowHeights=Array.from({length:rows},(_,row)=>Math.max(mode==='day'?240:150,...input.slice(row*columns,(row+1)*columns).map(g=>Math.ceil(g.items.length/Math.max(1,Math.floor((cellW-24)/48)))*48+80)));
+  const needed=rowHeights.reduce((a,b)=>a+b,0)+24;stage.style.minHeight=`${needed}px`;
+  const extra=Math.max(0,h-needed)/rows;let top=12;
+  return input.map((g,i)=>{const row=Math.floor(i/columns),column=i%columns;if(i&&column===0)top+=rowHeights[row-1]+extra;const height=rowHeights[row]+extra,cols=Math.min(columns,input.length-row*columns);return {...g,x:w/2+(column-(cols-1)/2)*cellW,y:top+(height-48)/2,maxR:Math.max(MIN_RADIUS,Math.min(cellW*.42,(height-64)*.43)),cellW,clusterHeight:height-64,labelY:top+height-28}});
 }
 function refresh(){title();const displayed=displayPurchaseDates(data),undated=displayed.filter(t=>!validDate(t.date));$('undatedButton').hidden=!undated.length;$('undatedButton').textContent=undated.length+' achat'+(undated.length>1?'s':'')+' sans date d’achat';scene=groupTransactions(displayed,selected,mode);groups=layoutGroups(scene.groups);$('spent').textContent=bankActive&&!scene.visible.length?'—':amount(sum(scene.visible));$('spentButton').setAttribute('aria-label',`${bankActive&&!scene.visible.length?'Aucun achat daté pour cette période':prefs.privacy?'Montant masqué':euro(sum(scene.visible))}. ${scene.visible.length} dépenses. Ouvrir la liste`);$('pendingBadge').hidden=!scene.visible.some(t=>t.status==='pending');$('estimatedBadge').hidden=!scene.visible.some(t=>t.dateBasis==='estimated');$('empty').hidden=scene.visible.length!==0;$('empty').querySelector('p').textContent=bankActive?(undated.length?'La banque n’a pas fourni la date de certains achats.':'Aucune opération reçue. Les paiements peuvent arriver plus tard.'):"Rien ici, pour l’instant.";$('sourceBadge').textContent=bankActive?(bankFresh?'BNP':'BNP · dernière synchro'):demo?'démo':'local';$('groupLabels').replaceChildren();
-  const specs=[];
-  if(mode!=='day'){
-    const radii=bubbleRadii(groups.map(g=>sum(g.items)),{maxRadius:Math.min(...groups.map(g=>g.maxR)),budget:groups.length*Math.min(...groups.map(g=>g.maxR))**2*.88});
-    groups.forEach((g,i)=>{
-      const b=document.createElement('button');b.className='group-label overview-day'+(g.items.length?'':' empty-group');b.style.left=`${g.x}px`;b.style.top=`${g.y}px`;b.textContent=shortGroup(g);if(mode==='week'){const total=document.createElement('strong');total.textContent=amount(sum(g.items));b.append(total)}b.setAttribute('aria-label',`${dateFmt(g.start,{weekday:'long',day:'numeric',month:'long'})}, ${g.items.length} dépenses. Ouvrir ce jour`);b.onclick=()=>drill(g);$('groupLabels').append(b);
-      specs.push({id:'day-'+g.id,tx:g.x,ty:g.y,targetR:radii[i],groupId:g.id,transaction:{id:g.id,merchant:'Jour',amountCents:sum(g.items),category:'other',paymentKind:overviewPaymentKind(g.items),members:g.items},color:g.items.length?paymentKinds[overviewPaymentKind(g.items)].color:'#f0f1f5'});
-    });
-  }else for(const g of groups){
-    const budget=g.maxR**2/1.55,capacity=Math.max(1,Math.floor(budget/MIN_RADIUS**2));
-    const visual=g.items.length>capacity?Object.keys(paymentKinds).map(k=>({id:`aggregate-${g.id}-${k}`,paymentKind:k,category:'other',merchant:paymentKinds[k].name,amountCents:sum(g.items.filter(t=>(t.paymentKind||'unknown')===k)),members:g.items.filter(t=>(t.paymentKind||'unknown')===k)})).filter(t=>t.amountCents):g.items;
-    const radii=bubbleRadii(visual.map(t=>t.amountCents),{budget,maxRadius:Math.min(100,g.maxR*.8)});
-    visual.forEach((t,i)=>{const angle=i*2.3999632297,offset=Math.sqrt(i+1)*8;specs.push({id:t.id,tx:g.x+Math.cos(angle)*offset,ty:g.y+Math.sin(angle)*offset,spawnX:g.x+Math.cos(angle)*Math.min(g.maxR,25+i*2),spawnY:g.y+Math.sin(angle)*Math.min(g.maxR,25+i*2),targetR:radii[i],groupId:g.id,transaction:t,color:bubbleColor(t)});});
+  const specs=expenseBubbles(groups,bubbleColor);
+  if(mode!=='day')for(const g of groups){
+    const b=document.createElement('button');b.className='group-label'+(g.items.length?'':' empty-group');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.textContent=shortGroup(g);b.setAttribute('aria-label',`${shortGroup(g)}, ${g.items.length} dépenses. Ouvrir ${mode==='month'?'cette semaine':'ce jour'}`);b.onclick=()=>drill(g);$('groupLabels').append(b);
   }
   field.reconcile(specs);if(prefs.motion){for(let i=0;i<240;i++)field.step(1/60)}updateWallet();syncPrefs();wake();
 }
-function drill(g){selected=g.start;changeMode('day');haptic()}
+function drill(g,t){selected=t?.date||g.start;changeMode(t?'day':mode==='month'?'week':'day');haptic()}
 function changeMode(m){if(mode===m||slide)return;field.dragId=null;field.dragTarget=null;pointer=null;$('dragLabel').hidden=true;mode=m;animateHeader();for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-pressed',b.dataset.mode===m?'true':'false');$('modeIndicator').style.transform=`translateX(${['day','week','month'].indexOf(m)*100}%)`;refresh()}
 const modes=['day','week','month'];
 let slide=null,pan=0,panTarget=0,zoom=1,zoomTarget=1,pinch=null;
@@ -90,7 +81,7 @@ function endPointer(e,cancelled=false){touches.delete(e.pointerId);if(pinch){if(
   const hit=hitPoint(e),body=field.hit(hit.x,hit.y)||p.body;
   const group=groups.find(g=>g.id===body?.groupId)||groups.find(g=>Math.abs(hit.x-g.x)<=Math.max(22,g.maxR)&&Math.abs(hit.y-g.y)<=Math.max(22,g.maxR));
   const action=gestureAction({dx:p.x-p.startX,dy:p.y-p.startY,moved:p.moved,mode,body,group,cancelled});
-  if(action==='next')travel(1);else if(action==='previous')travel(-1);else if(action==='drill')drill(group);else if(action==='detail')openDetail(body.transaction);
+  if(action==='next')travel(1);else if(action==='previous')travel(-1);else if(action==='drill')drill(group,body?.transaction);else if(action==='detail')openDetail(body.transaction);
   panTarget=0;if(prefs.motion){for(let i=0;i<240;i++)field.step(1/60)}wake();
 }
 canvas.addEventListener('pointerup',e=>endPointer(e));canvas.addEventListener('pointercancel',e=>endPointer(e,true));canvas.addEventListener('lostpointercapture',e=>endPointer(e,true));

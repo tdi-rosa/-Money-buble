@@ -29,3 +29,19 @@ test('swiping on a bubble navigates, taps open days in both overviews, cancel do
  assert.equal(gestureAction({dx:0,dy:0,moved:false,mode:'day',body:{}}),'detail');
  assert.equal(gestureAction({dx:100,dy:0,cancelled:true}),'none');
 });
+
+import {expenseBubbles} from '../dist/bubble-layout.js';
+import {groupTransactions} from '../dist/periods.js';
+test('all periods retain every expense as its own clickable bubble, even beyond 240 expenses',()=>{
+ const items=Array.from({length:350},(_,i)=>({id:'expense-'+i,date:'2026-10-08',amountCents:i+1,paymentKind:i%2?'card':'transfer'}));
+ for(const mode of ['day','week','month']){
+  const scene=groupTransactions(items,'2026-10-08',mode);
+  const groups=scene.groups.map((g,i)=>({...g,x:100,y:100+i*200,maxR:80,cellW:200}));
+  const bubbles=expenseBubbles(groups,paymentColor);
+  assert.deepEqual(bubbles.map(b=>b.id).sort(),items.map(t=>t.id).sort());
+  assert.ok(bubbles.every(b=>b.targetR>=22&&b.transaction===items.find(t=>t.id===b.id)));
+  assert.equal(bubbles.reduce((s,b)=>s+b.transaction.amountCents,0),items.reduce((s,t)=>s+t.amountCents,0));
+ }
+ const month=groupTransactions(items,'2026-10-08','month');assert.equal(month.groups.length,5);
+ assert.ok(month.groups.some(g=>g.start==='2026-10-05'&&g.end==='2026-10-11'));
+});
