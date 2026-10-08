@@ -1,4 +1,4 @@
-import {expenseBubbles,periodCamera,MIN_RADIUS,gestureAction,scenePoint} from './bubble-layout.js';
+import {MIN_RADIUS,gestureAction,scenePoint} from './bubble-layout.js';
 import {openBankWindow} from './bank-window.js';
 import {bankSnapshot} from './bank-state.js';
 import {categories,paymentKinds,paymentColor,merchantKey,euro,dateKey,shiftDate,validateImport,demoData,validDate,mergePurchaseDates,displayPurchaseDates} from './core.js';
@@ -20,16 +20,25 @@ const categoryKey=t=>notes[t.id]?.category||(Object.hasOwn(categories,merchantRu
 const amount=n=>prefs.privacy?'••• €':euro(n),cat=t=>categories[categoryKey(t)]||categories.other,dateFmt=(d,opts)=>new Intl.DateTimeFormat('fr-FR',{...opts,timeZone:'Europe/Paris'}).format(new Date(d+'T12:00:00Z'));
 function title(){const {start,end}=bounds(selected,mode);if(mode==='day'){$('periodTitle').textContent=selected===today?"Aujourd'hui":dateFmt(selected,{weekday:'long'});$('periodSubtitle').textContent=dateFmt(selected,{day:'numeric',month:'long',year: 'numeric'})}else if(mode==='week'){$('periodTitle').textContent=start.slice(0,7)===end.slice(0,7)?`${Number(start.slice(-2))} – ${dateFmt(end,{day:'numeric',month:'short'})}`:`${dateFmt(start,{day:'numeric',month:'short'})} – ${dateFmt(end,{day:'numeric',month:'short'})}`;$('periodSubtitle').textContent='une semaine'}else{$('periodTitle').textContent=dateFmt(selected,{month:'long'});$('periodSubtitle').textContent=selected.slice(0,4)}$('datePicker').value=selected;$('backToday').hidden=bounds(today,mode).start===start;}
 function shortGroup(g){return mode==='week'?dateFmt(g.start,{weekday:'short',day:'numeric'}):String(Number(g.start.slice(-2)))}
-function layoutGroups(input){
-  stage.style.minHeight='240px';
-  return periodCamera(input,{mode,date:selected,width:w,height:h}).labels;
-}
-function refresh(){title();const displayed=displayPurchaseDates(data),undated=displayed.filter(t=>!validDate(t.date));$('undatedButton').hidden=!undated.length;$('undatedButton').textContent=undated.length+' achat'+(undated.length>1?'s':'')+' sans date d’achat';scene=groupTransactions(displayed,selected,mode);groups=layoutGroups(scene.groups);$('spent').textContent=bankActive&&!scene.visible.length?'—':amount(sum(scene.visible));$('spentButton').setAttribute('aria-label',`${bankActive&&!scene.visible.length?'Aucun achat daté pour cette période':prefs.privacy?'Montant masqué':euro(sum(scene.visible))}. ${scene.visible.length} dépenses. Ouvrir la liste`);$('pendingBadge').hidden=!scene.visible.some(t=>t.status==='pending');$('estimatedBadge').hidden=!scene.visible.some(t=>t.dateBasis==='estimated');$('empty').hidden=scene.visible.length!==0;$('empty').querySelector('p').textContent=bankActive?(undated.length?'La banque n’a pas fourni la date de certains achats.':'Aucune opération reçue. Les paiements peuvent arriver plus tard.'):"Rien ici, pour l’instant.";$('sourceBadge').textContent=bankActive?(bankFresh?'BNP':'BNP · dernière synchro'):demo?'démo':'local';$('groupLabels').replaceChildren();
-  const specs=expenseBubbles(scene.groups,bubbleColor,{mode,date:selected,width:w,height:h});
+const layoutWorker=new Worker(new URL('./layout-worker.js',import.meta.url),{type:'module'});
+let layoutRevision=0,warmTimer=0;
+layoutWorker.onmessage=({data:result})=>{
+  if(result.id!==layoutRevision)return;
+  if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
+  groups=result.groups;$('groupLabels').replaceChildren();
   if(mode!=='day')for(const g of groups){
-    const b=document.createElement('button');b.className='group-label camera-label'+(g.items.length?'':' empty-group');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.textContent=shortGroup(g);b.setAttribute('aria-label',`${shortGroup(g)}, ${g.items.length} dépenses. Ouvrir ${'ce jour'}`);b.onclick=()=>drill(g);$('groupLabels').append(b);
+    const b=document.createElement('button');b.className='group-label camera-label'+(g.items.length?'':' empty-group');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.textContent=shortGroup(g);b.setAttribute('aria-label',`${shortGroup(g)}, ${g.items.length} dépenses. Ouvrir ce jour`);b.onclick=()=>drill(g);$('groupLabels').append(b);
   }
-  field.reconcile(specs);if(prefs.motion){for(let i=0;i<240;i++)field.step(1/60)}updateWallet();syncPrefs();wake();
+  field.reconcile(result.specs.map(s=>({...s,amountText:amount(s.transaction.amountCents)})));
+  if(prefs.motion){for(const b of field.bodies){b.x=b.tx;b.y=b.ty;b.r=b.targetR;b.alpha=b.targetAlpha;}field.bodies=field.bodies.filter(b=>!b.retired);}
+  wake();
+  // Warm the surrounding month off the UI thread for instant subsequent zooms.
+  clearTimeout(warmTimer);warmTimer=setTimeout(()=>layoutWorker.postMessage({warm:true,groups:groupTransactions(displayPurchaseDates(data),selected,'month').groups,options:{mode:'month',date:selected,width:w,height:h}}),250);
+};
+layoutWorker.onerror=()=>toast('Le calcul des bulles n’a pas pu démarrer. Réouvre l’application.');
+function refresh(){title();const displayed=displayPurchaseDates(data),undated=displayed.filter(t=>!validDate(t.date));$('undatedButton').hidden=!undated.length;$('undatedButton').textContent=undated.length+' achat'+(undated.length>1?'s':'')+' sans date d’achat';scene=groupTransactions(displayed,selected,mode);stage.style.minHeight='240px';$('spent').textContent=bankActive&&!scene.visible.length?'—':amount(sum(scene.visible));$('spentButton').setAttribute('aria-label',`${bankActive&&!scene.visible.length?'Aucun achat daté pour cette période':prefs.privacy?'Montant masqué':euro(sum(scene.visible))}. ${scene.visible.length} dépenses. Ouvrir la liste`);$('pendingBadge').hidden=!scene.visible.some(t=>t.status==='pending');$('estimatedBadge').hidden=!scene.visible.some(t=>t.dateBasis==='estimated');$('empty').hidden=scene.visible.length!==0;$('empty').querySelector('p').textContent=bankActive?(undated.length?'La banque n’a pas fourni la date de certains achats.':'Aucune opération reçue. Les paiements peuvent arriver plus tard.'):"Rien ici, pour l’instant.";$('sourceBadge').textContent=bankActive?(bankFresh?'BNP':'BNP · dernière synchro'):demo?'démo':'local';$('groupLabels').replaceChildren();
+  layoutWorker.postMessage({id:++layoutRevision,groups:scene.groups,options:{mode,date:selected,width:w,height:h}});
+  updateWallet();syncPrefs();wake();
 }
 function drill(g,t){selected=t?.date||g.start;changeMode('day');haptic()}
 function changeMode(m){if(mode===m||slide)return;field.dragId=null;field.dragTarget=null;pointer=null;$('dragLabel').hidden=true;mode=m;animateHeader();for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-pressed',b.dataset.mode===m?'true':'false');$('modeIndicator').style.transform=`translateX(${['day','week','month'].indexOf(m)*100}%)`;refresh()}
@@ -44,16 +53,16 @@ function paintBodies(bodies,offset=0,opacity=1){
   ctx.save();ctx.translate(w/2+offset,h/2);ctx.scale(zoom,zoom);ctx.translate(-w/2,-h/2);
   const dragged=bodies.find(b=>b.id===field.dragId);
   for(const b of [...bodies.filter(b=>b!==dragged),...(dragged?[dragged]:[])]){if(b.alpha<.01)continue;ctx.globalAlpha=b.alpha*opacity;ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(b.x,b.y,Math.max(0,b.r),0,Math.PI*2);ctx.fill();
-    if(mode==='day'&&b.r>=21){ctx.fillStyle='#ffffff';ctx.textAlign='center';ctx.textBaseline='middle';const t=b.transaction;ctx.font=`500 ${Math.min(22,b.r*.32)}px system-ui`;ctx.fillText(amount(t.amountCents),b.x,b.y-(b.r>48?5:0));if(b.r>48){ctx.font=`400 ${Math.min(12,b.r*.16)}px system-ui`;const name=t.merchant.length>16?t.merchant.slice(0,14)+'…':t.merchant;ctx.fillText(name,b.x,b.y+18);}}}
+    if(mode==='day'&&b.r>=21){ctx.fillStyle='#ffffff';ctx.textAlign='center';ctx.textBaseline='middle';const t=b.transaction;ctx.font=`500 ${Math.min(22,b.r*.32)}px system-ui`;ctx.fillText(b.amountText??amount(t.amountCents),b.x,b.y-(b.r>48?5:0));if(b.r>48){ctx.font=`400 ${Math.min(12,b.r*.16)}px system-ui`;const name=t.merchant.length>16?t.merchant.slice(0,14)+'…':t.merchant;ctx.fillText(name,b.x,b.y+18);}}}
   ctx.restore();
 }
 function draw(){ctx.clearRect(0,0,w,h);let offset=pan;if(slide){const t=slide.progress,e=1-Math.pow(1-t,4);offset=slide.direction*w*(1-e);const oldOffset=slide.offset-(slide.direction*w+slide.offset)*e;paintBodies(slide.bodies,oldOffset);slide.labels.style.transform=`translateX(${oldOffset}px)`;slide.empty.style.transform=`translateX(${oldOffset}px)`;slide.empty.style.opacity=String(1-e);}
   paintBodies(field.bodies,offset);$('groupLabels').style.transform=`translateX(${offset}px) scale(${zoom})`;$('empty').style.transform=`translateX(${offset}px)`;
   if(pointer?.body&&pointer.moved){const b=pointer.body;$('dragLabel').style.left=`${b.x}px`;$('dragLabel').style.top=`${b.y-b.r-13}px`;}
 }
-function frame(timestamp){raf=0;if(document.hidden)return;if(prefs.motion&&!pointer){draw();return;}const elapsed=last?Math.min(.05,(timestamp-last)/1000):1/60;last=timestamp;if(slide){slide.progress=Math.min(1,slide.progress+elapsed/.52);if(slide.progress===1){slide.labels.remove();slide.empty.remove();slide=null;}}const ease=1-Math.exp(-18*elapsed);pan+=(panTarget-pan)*ease;zoom+=(zoomTarget-zoom)*ease;accumulator+=elapsed;while(accumulator>=1/120){field.step(1/120);accumulator-=1/120}draw();const moving=field.bodies.some(b=>Math.abs(b.vx)+Math.abs(b.vy)>.03||Math.abs(b.r-b.targetR)>.01||Math.abs(b.alpha-b.targetAlpha)>.001);if(pointer||pinch||slide||moving||Math.abs(pan-panTarget)>.05||Math.abs(zoom-zoomTarget)>.001)raf=requestAnimationFrame(frame);}
+function frame(timestamp){raf=0;if(document.hidden)return;if(prefs.motion&&!pointer){draw();return;}const elapsed=last?Math.min(.05,(timestamp-last)/1000):1/60;last=timestamp;if(slide){slide.progress=Math.min(1,slide.progress+elapsed/.52);if(slide.progress===1){slide.labels.remove();slide.empty.remove();slide=null;}}const ease=1-Math.exp(-18*elapsed);pan+=(panTarget-pan)*ease;zoom+=(zoomTarget-zoom)*ease;field.step(elapsed);draw();const moving=field.bodies.some(b=>Math.abs(b.x-b.tx)>.02||Math.abs(b.y-b.ty)>.02||Math.abs(b.vx)+Math.abs(b.vy)>.03||Math.abs(b.r-b.targetR)>.01||Math.abs(b.alpha-b.targetAlpha)>.001);if(pointer||pinch||slide||moving||Math.abs(pan-panTarget)>.05||Math.abs(zoom-zoomTarget)>.001)raf=requestAnimationFrame(frame);}
 function wake(){if(!raf&&!document.hidden){last=0;accumulator=0;raf=requestAnimationFrame(frame)}}
-function resize(){const r=stage.getBoundingClientRect(),oldW=w,oldH=h;w=r.width;h=r.height;const ratio=Math.min(2,devicePixelRatio||1);canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);ctx.setTransform(ratio,0,0,ratio,0,0);for(const b of field.bodies){b.x*=w/oldW;b.y*=h/oldH}field.resize(w,h);refresh()}
+function resize(){const r=stage.getBoundingClientRect(),oldW=w,oldH=h;if(canvas.width&&Math.abs(w-r.width)<.5&&Math.abs(h-r.height)<.5)return;w=r.width;h=r.height;const ratio=Math.min(2,devicePixelRatio||1);canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);ctx.setTransform(ratio,0,0,ratio,0,0);for(const b of field.bodies){b.x*=w/oldW;b.y*=h/oldH}field.resize(w,h);refresh()}
 new ResizeObserver(resize).observe(stage);document.addEventListener('visibilitychange',()=>{if(document.hidden){if(raf)cancelAnimationFrame(raf);raf=0;pointer=null;pinch=null;touches.clear();field.dragId=null;field.dragTarget=null;panTarget=0;zoomTarget=1;$('dragLabel').hidden=true}else wake()});
 function point(e){const r=canvas.getBoundingClientRect();return {x:(e.clientX-r.left)*w/Math.max(1,r.width),y:(e.clientY-r.top)*h/Math.max(1,r.height)}}
 function hitPoint(e){return scenePoint(e,canvas.getBoundingClientRect(),{width:w,height:h,zoom,pan})}
