@@ -21,7 +21,7 @@ const amount=n=>prefs.privacy?'••• €':euro(n),cat=t=>categories[category
 function title(){const {start,end}=bounds(selected,mode);if(mode==='day'){$('periodTitle').textContent=selected===today?"Aujourd'hui":dateFmt(selected,{weekday:'long'});$('periodSubtitle').textContent=dateFmt(selected,{day:'numeric',month:'long',year: 'numeric'})}else if(mode==='week'){$('periodTitle').textContent=start.slice(0,7)===end.slice(0,7)?`${Number(start.slice(-2))} – ${dateFmt(end,{day:'numeric',month:'short'})}`:`${dateFmt(start,{day:'numeric',month:'short'})} – ${dateFmt(end,{day:'numeric',month:'short'})}`;$('periodSubtitle').textContent='une semaine'}else{$('periodTitle').textContent=dateFmt(selected,{month:'long'});$('periodSubtitle').textContent=selected.slice(0,4)}$('datePicker').value=selected;$('backToday').hidden=bounds(today,mode).start===start;}
 function shortGroup(g){if(!g.inPeriod)return dateFmt(g.start,{day:'numeric',month:'short'});return mode==='week'?dateFmt(g.start,{weekday:'short',day:'numeric'}):String(Number(g.start.slice(-2)))}
 const layoutWorker=new Worker(new URL('./layout-worker.js',import.meta.url),{type:'module'});
-let layoutRevision=0,pendingNavigation=null;
+let layoutRevision=0,pendingNavigation=null,queuedView=null;
 layoutWorker.onmessage=({data:result})=>{
   if(result.id!==layoutRevision)return;
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
@@ -46,13 +46,13 @@ function refresh(){title();const displayed=displayPurchaseDates(data),undated=di
   updateWallet();syncPrefs();wake();
 }
 function drill(g,t){selected=t?.date||g.start;changeMode('day');haptic()}
-function changeMode(m){if(mode===m||slide||pendingNavigation)return;field.dragId=null;field.dragTarget=null;pointer=null;$('dragLabel').hidden=true;mode=m;panTarget=panYTarget=0;zoomTarget=1;animateHeader();for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-pressed',b.dataset.mode===m?'true':'false');$('modeIndicator').style.transform=`translateX(${['day','week','month'].indexOf(m)*100}%)`;refresh()}
+function changeMode(m){if(mode===m)return;if(slide||pendingNavigation){queuedView=()=>changeMode(m);return;}field.dragId=null;field.dragTarget=null;pointer=null;$('dragLabel').hidden=true;mode=m;panTarget=panYTarget=0;zoomTarget=1;animateHeader();for(const b of document.querySelectorAll('[data-mode]'))b.setAttribute('aria-pressed',b.dataset.mode===m?'true':'false');$('modeIndicator').style.transform=`translateX(${['day','week','month'].indexOf(m)*100}%)`;refresh()}
 const modes=['day','week','month'];
 let slide=null,pan=0,panTarget=0,panY=0,panYTarget=0,zoom=1,zoomTarget=1,pinch=null;
 const touches=new Map();$('recenter').onclick=()=>{panTarget=panYTarget=0;zoomTarget=1;wake();};
 function animateHeader(direction=1){if(prefs.motion)return;for(const id of ['dateButton','spentButton']){const el=$(id);for(const a of el.getAnimations())a.cancel();el.animate([{opacity:0,transform:`translateX(${direction*24}px)`},{opacity:1,transform:'translateX(0)'}],{duration:420,easing:'cubic-bezier(.22,1,.36,1)'});}}
 function goTo(date,direction=1){
-  if(date===selected||slide||pendingNavigation)return;
+  if(date===selected)return;if(slide||pendingNavigation){queuedView=()=>goTo(date,direction);return;}
   if(!prefs.motion){
     const labels=$('groupLabels').cloneNode(true),empty=$('empty').cloneNode(true);
     labels.removeAttribute('id');labels.classList.add('outgoing-labels');labels.inert=true;stage.append(labels);
@@ -61,7 +61,7 @@ function goTo(date,direction=1){
   }
   selected=date;panTarget=panYTarget=0;zoomTarget=1;refresh();animateHeader(direction);haptic();dismissHint();
 }
-function travel(direction){if(slide)return;goTo(navigate(selected,mode,direction),direction);}
+function travel(direction){goTo(navigate(selected,mode,direction),direction);}
 
 function paintBodies(bodies,offset=0,opacity=1){
   ctx.save();ctx.translate(w/2+offset,h/2+panY);ctx.scale(zoom,zoom);ctx.translate(-w/2,-h/2);
@@ -74,7 +74,7 @@ function draw(){ctx.clearRect(0,0,w,h);let offset=pan;if(slide){const t=slide.pr
   paintBodies(field.bodies,offset);$('groupLabels').style.transform=`translate(${offset}px,${panY}px) scale(${zoom})`;$('empty').style.transform=`translateX(${offset}px)`;
   if(pointer?.body&&pointer.moved){const b=pointer.body;$('dragLabel').style.left=`${b.x}px`;$('dragLabel').style.top=`${b.y-b.r-13}px`;}
 }
-function frame(timestamp){raf=0;if(document.hidden)return;const elapsed=last?Math.min(.05,(timestamp-last)/1000):1/60;last=timestamp;if(slide){slide.progress=Math.min(1,slide.progress+elapsed/.52);if(slide.progress===1){slide.labels.remove();slide.empty.remove();slide=null;}}const ease=prefs.motion?1:1-Math.exp(-18*elapsed);pan+=(panTarget-pan)*ease;panY+=(panYTarget-panY)*ease;zoom+=(zoomTarget-zoom)*ease;field.step(elapsed);draw();$('recenter').hidden=mode!=='day'||(zoomTarget<=1.06&&Math.abs(panTarget)<2&&Math.abs(panYTarget)<2);const moving=field.bodies.some(b=>Math.abs(b.x-b.tx)>.02||Math.abs(b.y-b.ty)>.02||Math.abs(b.vx)+Math.abs(b.vy)>.03||Math.abs(b.r-b.targetR)>.01||Math.abs(b.alpha-b.targetAlpha)>.001);if(pointer||pinch||slide||moving||Math.abs(pan-panTarget)>.05||Math.abs(panY-panYTarget)>.05||Math.abs(zoom-zoomTarget)>.001)raf=requestAnimationFrame(frame);}
+function frame(timestamp){raf=0;if(document.hidden)return;const elapsed=last?Math.min(.05,(timestamp-last)/1000):1/60;last=timestamp;if(slide){slide.progress=Math.min(1,slide.progress+elapsed/.52);if(slide.progress===1){slide.labels.remove();slide.empty.remove();slide=null;const queued=queuedView;queuedView=null;if(queued)queued();}}const ease=prefs.motion?1:1-Math.exp(-18*elapsed);pan+=(panTarget-pan)*ease;panY+=(panYTarget-panY)*ease;zoom+=(zoomTarget-zoom)*ease;field.step(elapsed);draw();$('recenter').hidden=mode!=='day'||(zoomTarget<=1.06&&Math.abs(panTarget)<2&&Math.abs(panYTarget)<2);const moving=field.bodies.some(b=>Math.abs(b.x-b.tx)>.02||Math.abs(b.y-b.ty)>.02||Math.abs(b.vx)+Math.abs(b.vy)>.03||Math.abs(b.r-b.targetR)>.01||Math.abs(b.alpha-b.targetAlpha)>.001);if(pointer||pinch||slide||moving||Math.abs(pan-panTarget)>.05||Math.abs(panY-panYTarget)>.05||Math.abs(zoom-zoomTarget)>.001)raf=requestAnimationFrame(frame);}
 function wake(){if(!raf&&!document.hidden){last=0;accumulator=0;raf=requestAnimationFrame(frame)}}
 function resize(){const r=stage.getBoundingClientRect(),oldW=w,oldH=h;if(canvas.width&&Math.abs(w-r.width)<.5&&Math.abs(h-r.height)<.5)return;w=r.width;h=r.height;const ratio=Math.min(2,devicePixelRatio||1);canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);ctx.setTransform(ratio,0,0,ratio,0,0);for(const b of field.bodies){b.x*=w/oldW;b.y*=h/oldH}field.resize(w,h);refresh()}
 new ResizeObserver(resize).observe(stage);document.addEventListener('visibilitychange',()=>{if(document.hidden){if(raf)cancelAnimationFrame(raf);raf=0;pointer=null;pinch=null;touches.clear();field.dragId=null;field.dragTarget=null;panTarget=panYTarget=0;zoomTarget=1;$('dragLabel').hidden=true}else wake()});
