@@ -26,7 +26,7 @@ let layoutRevision=0,pendingNavigation=null,layoutPayload=null,lastLayoutData=nu
 const previews=new Map(),layouts=new Map(),bodyPool=new Map();
 const simulationWorker=new Worker(new URL('./simulation-worker.js',import.meta.url),{type:'module'});
 let simulationRevision=0,simulationBodies=null,simulationPositions=null,simulationRunning=false;
-simulationWorker.onmessage=({data:result})=>{if(result.revision===simulationRevision){simulationPositions=result.positions;wake();}};
+simulationWorker.onmessage=({data:result})=>{if(result.revision===simulationRevision){simulationPositions=result.positions;field.time=result.time??field.time;wake();}};
 function simulate(elapsed,scale,organic){
   if(field.bodies.length<=60){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;}return field.stepLive(elapsed,{pixelScale:scale,organic});}
   const message={running:true,options:{pixelScale:scale,organic},dragId:field.dragId,dragTarget:field.dragTarget};
@@ -44,7 +44,7 @@ function receiveLayout(result){
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
   levelFit=result.fitByMode||levelFit;layouts.set(mode+':'+selected,result);
   const navigation=pendingNavigation;pendingNavigation=null;
-  if(navigation||prefs.motion){field.bodies=result.specs.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,phase:i*2.3999632297,retired:false,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;join=null;if(navigation)slide={...navigation,progress:0};}
+  if(navigation||prefs.motion){field.bodies=result.specs.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,phase:i*2.3999632297,retired:false,departing:false,travelSpeed:null,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;join=null;if(navigation)slide={...navigation,progress:0};}
   else beginJoin(result);
   if(layoutPayload){
     const requests=[{mode,date:navigate(selected,mode,-1)},{mode,date:navigate(selected,mode,1)},...modes.filter(m=>m!==mode).map(mode=>({mode,date:selected}))];
