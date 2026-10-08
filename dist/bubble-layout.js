@@ -27,8 +27,8 @@ export function gestureAction({dx,dy,moved,mode,body,group,cancelled}){
 // Every transaction keeps its identity in every period, including dense histories.
 export function expenseBubbles(groups,color){
   return groups.flatMap(g=>{
-    const radii=bubbleRadii(g.items.map(t=>t.amountCents),{budget:g.maxR**2/1.55,maxRadius:Math.min(100,g.maxR*.8)});
-    const dense=g.items.length*MIN_RADIUS**2>g.maxR**2/1.55;
+    const radii=bubbleRadii(g.items.map(t=>t.amountCents),{budget:Math.max(g.maxR**2/1.55,g.items.length*MIN_RADIUS**2*1.5),maxRadius:Math.min(100,g.maxR*.8)});
+    const dense=g.items.length>40;
     const columns=Math.max(1,Math.floor((g.cellW-24)/48)),rows=Math.ceil(g.items.length/columns);
     return g.items.map((t,i)=>{
       const angle=i*2.3999632297,offset=Math.sqrt(i+1)*8;
