@@ -1,3 +1,8 @@
+## 0.8.2
+
+- Recadre dès le regroupement sur le cœur de l’amas : les bulles encore éloignées ont une influence limitée sur le cadrage, sans attendre leur arrivée.
+- Préserve les rayons proportionnels, les positions et la simulation avec collisions ; le cadrage rejoint continuellement les limites physiques quand les dernières bulles arrivent.
+
 ## 0.8.1
 
 - Supprime le dézoom panoramique au milieu du swipe : le zoom reste toujours entre les cadrages de départ et d’arrivée.

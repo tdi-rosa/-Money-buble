@@ -25,6 +25,24 @@ export function fitCloud(bodies,width,height,fallback=1){
   for(const b of bodies){rx=Math.max(rx,Math.abs(b.x-center.x)+b.r);ry=Math.max(ry,Math.abs(b.y-center.y)+b.r);}
   return Math.min(6,Math.max(1,width-40)/(rx*2+12),Math.max(1,height-48)/(ry*2+12));
 }
+// Camera-only robust footprint: distant arrivals have bounded influence until
+// they reach the cloud. Physical positions and monetary radii stay untouched.
+export function gatheringCloudBounds(bodies,width,height){
+  let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
+  for(const b of bodies){
+    if(b.inPeriod===false)continue;
+    let x=b.x,y=b.y;
+    if(Number.isFinite(b.gatherRadius)&&b.gatherRadius>0){
+      const cx=b.centerX??width/2,cy=b.centerY??height/2;
+      const dx=x-cx,dy=y-cy,distance=Math.hypot(dx,dy);
+      const reach=Math.max(0,b.gatherRadius-b.r);
+      if(distance>reach){const ratio=reach/distance;x=cx+dx*ratio;y=cy+dy*ratio;}
+    }
+    left=Math.min(left,x-b.r);right=Math.max(right,x+b.r);
+    top=Math.min(top,y-b.r);bottom=Math.max(bottom,y+b.r);
+  }
+  return Number.isFinite(left)?{left,right,top,bottom}:null;
+}
 export function swipeCropScale(from,to,progress){
   const p=Math.min(1,Math.max(0,progress)),t=p*p*(3-2*p);
   // Interpolate the visible world extent. Both clouds use this single scale.

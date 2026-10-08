@@ -1,5 +1,5 @@
 import {PeriodTravel} from './period-travel.js';
-import {CloudHistory,cloudCenter,fitCloud} from './cloud-navigation.js';
+import {CloudHistory,cloudCenter,fitCloud,gatheringCloudBounds} from './cloud-navigation.js';
 import {ownsSimulationFrame,targetCloudRadius,projectCameraPoint,reprojectDeparture} from './simulation-state.js';
 import {FluidGauge} from './fluid-gauge.js';
 import {hitRenderedBubbles} from './bubble-layout.js';
@@ -204,9 +204,8 @@ function frame(timestamp){
   }
   // Crop the retained physical cloud immediately, even while departures remain.
   if((!join||join.contract)&&!bubbleDrag&&!pointer&&!pinch&&!dragScene&&!periodTravel&&!slide&&!pendingNavigation){
-    let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
-    for(const b of field.bodies){if(!b.inPeriod)continue;left=Math.min(left,b.x-b.r);right=Math.max(right,b.x+b.r);top=Math.min(top,b.y-b.r);bottom=Math.max(bottom,b.y+b.r);}
-    if(Number.isFinite(left)){const follow=1-Math.exp(-7*elapsed),cx=join?w/2:(left+right)/2,cy=join?h/2:(top+bottom)/2;
+    const footprint=gatheringCloudBounds(field.bodies,w,h);
+    if(footprint){const {left,right,top,bottom}=footprint,follow=1-Math.exp(-7*elapsed),cx=join?w/2:(left+right)/2,cy=join?h/2:(top+bottom)/2;
       cameraX+=(cx-cameraX)*follow;cameraY+=(cy-cameraY)*follow;
       const spanX=2*Math.max(right-cameraX,cameraX-left)+12,spanY=2*Math.max(bottom-cameraY,cameraY-top)+12,cropped=Math.min(6,Math.max(1,w-40)/spanX,Math.max(1,h-48)/spanY);
       fitZoom+=(cropped-fitZoom)*follow;}

@@ -1,7 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CloudHistory,cloudCenter,fitCloud,swipeCropScale,projectCloud,rescaleScreenCloud} from '../dist/cloud-navigation.js';
+import {CloudHistory,cloudCenter,fitCloud,gatheringCloudBounds,swipeCropScale,projectCloud,rescaleScreenCloud} from '../dist/cloud-navigation.js';
 import {ClusterCatalog} from '../dist/cluster-tree.js';
+import {BubbleField} from '../dist/physics.js';
+
+test('contraction camera fits the forming cloud without waiting for distant retained bubbles',()=>{
+ const bodies=[{id:'large',x:180,y:250,r:45,targetR:45},{id:'small',x:235,y:250,r:10,targetR:10},{id:'late',x:1800,y:250,r:5,targetR:5}].map(b=>({...b,inPeriod:true,cluster:true,centerX:180,centerY:250,tx:180,ty:250,gatherRadius:100,vx:0,vy:0}));
+ const before=structuredClone(bodies),footprint=gatheringCloudBounds(bodies,360,500);
+ assert.deepEqual(footprint,{left:135,right:280,top:205,bottom:295});
+ assert.deepEqual(bodies,before,'camera estimation must not move, resize or remove physical circles');
+ const robustScale=320/(footprint.right-footprint.left+12);
+ assert.ok(robustScale>fitCloud(bodies,360,500)*8,'crop already approaches the small cloud while an arrival is far away');
+ assert.deepEqual(gatheringCloudBounds([...bodies.slice(0,2),{...bodies[2],x:18000}],360,500),footprint,'outlier distance cannot hold back the camera');
+ const field=new BubbleField();field.bodies=bodies;
+ for(let i=0;i<180;i++){field.stepLive(1/60,{pixelScale:robustScale});const box=gatheringCloudBounds(field.bodies,360,500);assert.ok(Object.values(box).every(Number.isFinite));}
+ assert.equal(field.bodies.length,3);assert.equal(field.bodies[0].r,45);assert.equal(field.bodies[2].r,5);
+ assert.ok(Math.hypot(field.bodies[2].x-180,field.bodies[2].y-250)<100,'the real distant circle still joins through the simulation');
+});
+
+test('robust crop preserves large monetary radii and continuously becomes the full physical crop',()=>{
+ const base={inPeriod:true,gatherRadius:100,centerX:180,centerY:250};
+ const large={...base,x:180,y:250,r:85},late={...base,x:275,y:250,r:5};
+ const at=gatheringCloudBounds([large,late],360,500),outside=gatheringCloudBounds([large,{...late,x:275.001}],360,500),inside=gatheringCloudBounds([large,{...late,x:274.999}],360,500);
+ assert.deepEqual(at,outside);assert.ok(Math.abs(at.right-inside.right)<.002,'no camera jump when the last arrival reaches the cloud');
+ assert.equal(at.left,95);assert.equal(at.top,165);assert.equal(at.bottom,335,'a large circle contributes its entire monetary radius');
+ const final=gatheringCloudBounds([large,{...late,x:230}],360,500);
+ assert.deepEqual(final,{left:95,right:265,top:165,bottom:335});
+ assert.equal(gatheringCloudBounds([],360,500),null);
+ assert.deepEqual(gatheringCloudBounds([large,{x:90000,y:90000,r:900,inPeriod:false}],360,500),final,'departures never delay contraction');
+});
 
 test('two independently cropped periods use one monetary scale throughout a swipe',()=>{
  const catalog=new ClusterCatalog([{id:'rent',date:'2026-09-01',amountCents:139150},{id:'shop',date:'2026-10-01',amountCents:4610}]);
