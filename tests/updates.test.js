@@ -1,4 +1,11 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {autoUpdates} from '../dist/updates.js';
+import test from 'node:test';import assert from 'node:assert/strict';import {autoUpdates,releaseBusy} from '../dist/updates.js';
+test('settings and preference switches do not block a release; editing and bank sync do',()=>{
+ assert.equal(releaseBusy({activeElement:{tagName:'DIALOG'}}),false);
+ assert.equal(releaseBusy({activeElement:{tagName:'INPUT',type:'checkbox'}}),false);
+ assert.equal(releaseBusy({activeElement:{tagName:'TEXTAREA'}}),true);
+ assert.equal(releaseBusy({bankBusy:true}),true);
+ assert.equal(releaseBusy({pointer:{}}),true);
+});
 function fixture(){let busy=false,visible=true,reloads=0,activations=0,listener;const reg={waiting:{postMessage(){activations++;}},update(){return Promise.resolve()},addEventListener(){}};const control=autoUpdates(reg,{isBusy:()=>busy,visible:()=>visible,reload:()=>reloads++,hadController:true,onControllerChange:cb=>listener=cb,schedule(){}});return {control,reg,setBusy:v=>busy=v,setVisible:v=>visible=v,change:()=>listener(),get reloads(){return reloads},get activations(){return activations}}}
 test('a downloaded release activates automatically without a button',()=>{const f=fixture();assert.equal(f.activations,1);f.change();assert.equal(f.reloads,1);f.change();assert.equal(f.reloads,1)});
 test('reload waits until a drag or dialog is finished',()=>{const f=fixture();f.setBusy(true);f.change();assert.equal(f.reloads,0);f.setBusy(false);f.control.flush();assert.equal(f.reloads,1)});

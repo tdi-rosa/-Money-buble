@@ -1,5 +1,5 @@
-const CACHE='money-bubble-shell-61cc4f1b8e344c74d53f';
-const SHELL=['./','./index.html','./style.css','./app.js','./core.js','./bank-state.js','./physics.js','./periods.js','./updates.js','./icon.svg','./icon-192.png','./icon-512.png','./manifest.webmanifest'];
+const CACHE='money-bubble-shell-c9da6bbcaca7401fceb1';
+const SHELL=['./','./index.html','./style.css','./app.js','./core.js','./bank-state.js','./physics.js','./periods.js','./updates.js','./bank-window.js','./icon.svg','./icon-192.png','./icon-512.png','./manifest.webmanifest'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(async c=>{for(const path of SHELL){const res=await fetch(path,{cache:'reload'});if(!res.ok||res.redirected)throw Error('App shell unavailable');await c.put(path,res)}})));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>(k.startsWith('bulles-shell-')||k.startsWith('money-bubble-shell-'))&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('message',e=>{if(e.data?.type==='SKIP_WAITING')self.skipWaiting()});

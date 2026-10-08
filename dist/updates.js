@@ -1,4 +1,9 @@
 // Apply complete, downloaded releases automatically when no interaction is in progress.
+export function releaseBusy({bankBusy,pointer,activeElement}){
+  const tag=activeElement?.tagName;
+  const editing=tag==='TEXTAREA'||tag==='SELECT'||(tag==='INPUT'&&!['checkbox','radio','button','submit'].includes(activeElement.type));
+  return !!(bankBusy||pointer||editing);
+}
 export function autoUpdates(registration,{isBusy,reload,visible=()=>true,hadController,onControllerChange,schedule,checkEvery=60000}){
   let needsReload=false,reloaded=false,applying=false;
   const flush=()=>{

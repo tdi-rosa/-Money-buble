@@ -27,7 +27,7 @@ test('end-to-end mock: authorization, state binding, account access, sync and re
  const req=(method,body,cookies='')=>({method,body,headers:{host:new URL(ORIGIN).host,origin:ORIGIN,cookie:cookies,'x-real-ip':'127.0.0.1','user-agent':'test'},url:'/api/bank/start'});
  try{const first=makeRes();await start(req('POST',{}),first);assert.equal(first.statusCode,200);const connectCookie=first.headers['Set-Cookie'][0].split(';')[0];
  const bad=makeRes();await callback({...req('GET',undefined,connectCookie),url:'/api/bank/callback?code=mock&state=wrong'},bad);assert.ok(bad.location.endsWith('bank=state'));assert.equal(calls,3);
- const cb=makeRes();await callback({...req('GET',undefined,connectCookie),url:'/api/bank/callback?code=mock&state='+authState},cb);assert.ok(cb.location.endsWith('bank=connected'));const bankCookie=cb.headers['Set-Cookie'].find(x=>x.startsWith('__Host-mb-bank=')).split(';')[0];
+ const cb=makeRes();await callback({...req('GET',undefined,connectCookie),url:'/api/bank/callback?code=mock&state='+authState},cb);assert.equal(cb.location,ORIGIN+'/bank-return.html?bank=connected');const bankCookie=cb.headers['Set-Cookie'].find(x=>x.startsWith('__Host-mb-bank=')).split(';')[0];
  const denied=makeRes(),count=calls;await sync(req('POST',{accountId:'not-authorized'},bankCookie),denied);assert.equal(denied.statusCode,403);assert.equal(calls,count);
  const ok=makeRes();await sync(req('POST',{accountId:'authorized'},bankCookie),ok);assert.equal(ok.body.transactions[0].amountCents,1280);assert.equal(ok.body.balance.amount,84230);assert.equal(ok.headers['Cache-Control'],'no-store');
  const done=makeRes();await disconnect(req('POST',{},bankCookie),done);assert.ok(revoked);assert.ok(done.headers['Set-Cookie'][0].includes('Max-Age=0'));
