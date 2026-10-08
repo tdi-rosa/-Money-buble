@@ -73,11 +73,11 @@ test('daily and zoomed clusters have no overlapping circles, including every tra
  }
 });
 
-test('week fits one Monday–Sunday calendar row',()=>{
+test('week fits a compact three-column calendar grid',()=>{
  const camera=periodCamera(groupTransactions([],'2026-10-08','week').groups,{mode:'week',date:'2026-10-08',width:360,height:420});
  assert.equal(camera.labels.length,7);
- assert.equal(new Set(camera.labels.map(g=>g.x)).size,7);
- assert.equal(new Set(camera.labels.map(g=>g.y)).size,1);
+ assert.equal(new Set(camera.labels.map(g=>g.x)).size,3);
+ assert.equal(new Set(camera.labels.map(g=>g.y)).size,3);
  assert.ok(camera.labels.every(g=>g.x>0&&g.x<360&&g.y>0&&g.y<420));
 });
 
@@ -135,4 +135,24 @@ test('short month viewports never create negative radii',()=>{
  const items=[{id:'short',date:'2026-08-31',amountCents:3900}];
  const circles=expenseBubbles([{items}],paymentColor,{mode:'month',date:'2026-08-31',width:320,height:240});
  assert.ok(circles.every(b=>Number.isFinite(b.targetR)&&b.targetR>0));
+});
+
+import {hitRenderedBubbles} from '../dist/bubble-layout.js';
+test('every part of a painted circle is clickable at mobile DPR, after scrolling and zooming',()=>{
+ const body={id:'painted'},rect={left:24,top:137,width:360,height:420};
+ for(const dpr of [1,2,3])for(const zoom of [1,2.5,6]){
+  const bitmap={width:360*dpr,height:420*dpr},cx=180,cy=180,r=30*zoom;
+  const regions=[{body,x:cx*dpr,y:cy*dpr,r:r*dpr}];
+  for(const [dx,dy] of [[0,-.95],[0,0],[0,.95],[-.95,0],[.95,0]]){
+   assert.equal(hitRenderedBubbles(regions,{clientX:rect.left+cx+r*dx,clientY:rect.top+cy+r*dy},rect,bitmap),body);
+  }
+ }
+});
+test('calendar totals sit above every cluster and dates below it',()=>{
+ const items=[{id:'label',date:'2026-10-08',amountCents:3900}];
+ for(const mode of ['week','month']){
+  const camera=periodCamera([{items}],{mode,date:'2026-10-08',width:360,height:420});
+  const b=expenseBubbles([{items}],paymentColor,{},camera)[0],label=camera.labels.find(g=>g.id===b.groupId);
+  assert.ok(label.totalY<b.ty-b.targetR);assert.ok(label.labelY>b.ty+b.targetR);
+ }
 });

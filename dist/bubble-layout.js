@@ -51,21 +51,21 @@ export function periodCamera(groups,{mode='day',date=groups[0]?.start,width=400,
     const top=all.length?Math.min(...all.map(b=>b.y-b.r)):-40,bottom=all.length?Math.max(...all.map(b=>b.y+b.r)):40;
     return [d,{cx:(left+right)/2,cy:(top+bottom)/2,width:right-left,height:bottom-top}];
   }));
-  const columns=mode==='day'?1:7;
+  const columns=mode==='day'?1:mode==='week'?3:7;
   const firstColumn=mode==='month'?(new Date(range.start+'T12:00:00Z').getUTCDay()+6)%7:0;
-  const rows=mode==='month'?Math.ceil((firstColumn+days.length)/7):1;
+  const rows=mode==='day'?1:Math.ceil((firstColumn+days.length)/columns);
   const pad=mode==='day'?24:8,cellW=(width-pad*2)/columns;
-  const availableH=Math.max(100,height-32),cellH=mode==='week'?Math.min(availableH,Math.max(100,cellW*1.6)):availableH/rows;
-  const top=mode==='week'?(height-cellH)/2:16;
+  const availableH=Math.max(100,height-32),cellH=availableH/rows;
+  const top=16;
   const labelSpace=mode==='day'?0:35;
   const largestW=Math.max(1,...days.map(d=>boxes.get(d).width)),largestH=Math.max(1,...days.map(d=>boxes.get(d).height));
   const scale=Math.min((cellW-(mode==='day'?0:10))/largestW,Math.max(10,cellH-labelSpace-(mode==='day'?16:12))/largestH);
   const centers=new Map(),labels=[];
   days.forEach((d,i)=>{
     const n=i+firstColumn,col=n%columns,row=Math.floor(n/columns);
-    const x=pad+cellW*(col+.5),y=top+cellH*row+(cellH-labelSpace)/2;
+    const x=pad+cellW*(col+.5),y=top+cellH*row+(cellH-labelSpace)/2+(mode==='day'?0:17);
     centers.set(d,{x,y});
-    labels.push({id:d,start:d,end:d,inPeriod:true,items:byDate.get(d),x,y,labelY:top+cellH*(row+1)-17,maxR:cellW/2,
+    labels.push({id:d,start:d,end:d,inPeriod:true,items:byDate.get(d),x,y,labelY:top+cellH*(row+1)-9,totalY:top+cellH*row+7,maxR:cellW/2,
       hitRect:{left:pad+cellW*col,top:top+cellH*row,right:pad+cellW*(col+1),bottom:top+cellH*(row+1)}});
   });
   // Other days remain in memory and move beyond the viewport without fading.
@@ -81,4 +81,15 @@ export function expenseBubbles(groups,color,options,camera=periodCamera(groups,o
     const ty=inPeriod?center.y+(local.y-box.cy)*camera.scale:camera.height/2;
     return {id:t.id,tx,ty,spawnX:tx,spawnY:ty,targetR,groupId:t.date,transaction:t,color:color(t),collisionGap:4*camera.scale,layoutLocked:true,persistent:true,inPeriod};
   }));
+}
+
+// Hit-test the exact bitmap-space circles captured while painting, independent of
+// layout reflow, scroll position, device pixel ratio or camera interpolation.
+export function hitRenderedBubbles(regions,event,rect,bitmap){
+  if(!rect.width||!rect.height)return;
+  const x=(event.clientX-rect.left)*bitmap.width/rect.width;
+  const y=(event.clientY-rect.top)*bitmap.height/rect.height;
+  const distance=b=>Math.hypot(x-b.x,y-b.y);
+  const visible=[...regions].reverse();
+  return visible.find(b=>distance(b)<=b.r)?.body||visible.filter(b=>distance(b)<=Math.max(b.r,22*bitmap.width/rect.width)).sort((a,b)=>distance(a)-distance(b))[0]?.body;
 }

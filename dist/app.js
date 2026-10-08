@@ -1,4 +1,4 @@
-import {MIN_RADIUS,gestureAction,scenePoint} from './bubble-layout.js';
+import {MIN_RADIUS,gestureAction,scenePoint,hitRenderedBubbles} from './bubble-layout.js';
 import {openBankWindow} from './bank-window.js';
 import {bankSnapshot} from './bank-state.js';
 import {categories,paymentKinds,paymentColor,merchantKey,euro,dateKey,shiftDate,validateImport,demoData,validDate,mergePurchaseDates,displayPurchaseDates} from './core.js';
@@ -27,7 +27,7 @@ layoutWorker.onmessage=({data:result})=>{
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
   groups=result.groups;$('groupLabels').replaceChildren();
   for(const g of groups){if(mode==='day')continue;
-    const b=document.createElement('button');b.className='group-label camera-label'+(g.items.length?'':' empty-group')+(g.inPeriod?'':' context-day');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.style.width=`${Math.max(36,g.hitRect.right-g.hitRect.left-4)}px`;b.textContent=shortGroup(g);const total=document.createElement('small');total.className='day-spend';total.textContent=amount(sum(g.items));b.append(total);b.setAttribute('aria-label',`${shortGroup(g)}, ${amount(sum(g.items))}, ${g.items.length} dépenses. Ouvrir ce jour`);b.onclick=()=>drill(g);$('groupLabels').append(b);
+    const b=document.createElement('button');b.className='group-label camera-label'+(g.items.length?'':' empty-group')+(g.inPeriod?'':' context-day');b.style.left=`${g.x}px`;b.style.top=`${g.labelY}px`;b.style.width=`${Math.max(36,g.hitRect.right-g.hitRect.left-4)}px`;b.textContent=shortGroup(g);const total=document.createElement('small');total.className='day-spend';total.textContent=amount(sum(g.items));total.style.position='absolute';total.style.top=`${g.totalY-g.labelY+17}px`;total.style.left='0';total.style.width='100%';b.append(total);b.setAttribute('aria-label',`${shortGroup(g)}, ${amount(sum(g.items))}, ${g.items.length} dépenses. Ouvrir ce jour`);b.onclick=()=>drill(g);$('groupLabels').append(b);
   }
   const navigation=pendingNavigation;pendingNavigation=null;
   field.reconcile(result.specs.map(s=>({...s,amountText:amount(s.transaction.amountCents)})));
@@ -63,14 +63,16 @@ function goTo(date,direction=1){
 }
 function travel(direction){goTo(navigate(selected,mode,direction),direction);}
 
+let renderedRegions=[];
+function paintedHit(e){return hitRenderedBubbles(renderedRegions,e,canvas.getBoundingClientRect(),canvas)}
 function paintBodies(bodies,offset=0,opacity=1){
   ctx.save();ctx.translate(w/2+offset,h/2+panY);ctx.scale(zoom,zoom);ctx.translate(-w/2,-h/2);
   const dragged=bodies.find(b=>b.id===field.dragId);
-  for(const b of [...bodies.filter(b=>b!==dragged),...(dragged?[dragged]:[])]){if(b.alpha<.01||(!b.inPeriod&&(slide||Math.hypot(b.x-b.tx,b.y-b.ty)<1)))continue;ctx.globalAlpha=b.alpha*opacity;ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(b.x,b.y,Math.max(0,b.r),0,Math.PI*2);ctx.fill();
+  for(const b of [...bodies.filter(b=>b!==dragged),...(dragged?[dragged]:[])]){if(b.alpha<.01||(!b.inPeriod&&(slide||Math.hypot(b.x-b.tx,b.y-b.ty)<1)))continue;ctx.globalAlpha=b.alpha*opacity;ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(b.x,b.y,Math.max(0,b.r),0,Math.PI*2);ctx.fill();if(b.inPeriod){const m=ctx.getTransform();renderedRegions.push({body:b,x:m.a*b.x+m.c*b.y+m.e,y:m.b*b.x+m.d*b.y+m.f,r:Math.hypot(m.a,m.b)*b.r});}
     if(mode==='day'&&b.inPeriod&&b.r*zoom>=21){ctx.fillStyle='#ffffff';ctx.textAlign='center';ctx.textBaseline='middle';const t=b.transaction;ctx.font=`500 ${Math.min(22,b.r*.32)}px system-ui`;ctx.fillText(b.amountText??amount(t.amountCents),b.x,b.y-(b.r>48?5:0));if(b.r>48){ctx.font=`400 ${Math.min(12,b.r*.16)}px system-ui`;const name=t.merchant.length>16?t.merchant.slice(0,14)+'…':t.merchant;ctx.fillText(name,b.x,b.y+18);}}}
   ctx.restore();
 }
-function draw(){ctx.clearRect(0,0,w,h);let offset=pan;if(slide){const t=slide.progress,e=1-Math.pow(1-t,4);offset=slide.direction*w*(1-e);const oldOffset=slide.offset-(slide.direction*w+slide.offset)*e;paintBodies(slide.bodies,oldOffset);slide.labels.style.transform=`translateX(${oldOffset}px)`;slide.empty.style.transform=`translateX(${oldOffset}px)`;slide.empty.style.opacity=String(1-e);}
+function draw(){renderedRegions=[];ctx.clearRect(0,0,w,h);let offset=pan;if(slide){const t=slide.progress,e=1-Math.pow(1-t,4);offset=slide.direction*w*(1-e);const oldOffset=slide.offset-(slide.direction*w+slide.offset)*e;paintBodies(slide.bodies,oldOffset);slide.labels.style.transform=`translateX(${oldOffset}px)`;slide.empty.style.transform=`translateX(${oldOffset}px)`;slide.empty.style.opacity=String(1-e);}
   paintBodies(field.bodies,offset);$('groupLabels').style.transform=`translate(${offset}px,${panY}px) scale(${zoom})`;$('empty').style.transform=`translateX(${offset}px)`;
   if(pointer?.body&&pointer.moved){const b=pointer.body;$('dragLabel').style.left=`${b.x}px`;$('dragLabel').style.top=`${b.y-b.r-13}px`;}
 }
@@ -86,7 +88,7 @@ function pinchDistance(){const [a,b]=[...touches.values()];return Math.hypot(a.x
 canvas.addEventListener('pointerdown',e=>{
   if(e.button>0||slide||pendingNavigation)return;const p=point(e);touches.set(e.pointerId,p);canvas.setPointerCapture(e.pointerId);
   if(touches.size===2){field.dragId=null;field.dragTarget=null;pointer=null;$('dragLabel').hidden=true;const midpoint=pinchCenter();pinch={distance:pinchDistance(),zoom,anchor:scenePoint({clientX:midpoint.x,clientY:midpoint.y},{left:0,top:0,width:w,height:h},{width:w,height:h,zoom,pan,panY}),changed:false};dismissHint();wake();return;}
-  if(touches.size!==1)return;const hit=hitPoint(e),body=field.hit(hit.x,hit.y,22/Math.max(.01,zoom));pointer={id:e.pointerId,startX:p.x,startY:p.y,x:p.x,y:p.y,body,moved:false,startPan:pan,startPanY:panY,exploring:zoom>1.06};wake();
+  if(touches.size!==1)return;const hit=hitPoint(e),body=paintedHit(e);pointer={id:e.pointerId,startX:p.x,startY:p.y,x:p.x,y:p.y,body,moved:false,startPan:pan,startPanY:panY,exploring:zoom>1.06};wake();
 });
 canvas.addEventListener('pointermove',e=>{
   if(!touches.has(e.pointerId))return;const p=point(e);touches.set(e.pointerId,p);
@@ -102,7 +104,7 @@ canvas.addEventListener('pointermove',e=>{
 });
 function endPointer(e,cancelled=false){touches.delete(e.pointerId);if(pinch){if(!touches.size){pinch=null;if(zoomTarget<1){zoomTarget=1;panTarget=panYTarget=0;}}wake();return;}
   if(!pointer||e.pointerId!==pointer.id)return;const p=pointer;pointer=null;field.dragId=null;field.dragTarget=null;$('dragLabel').hidden=true;
-  const hit=hitPoint(e),body=field.hit(hit.x,hit.y,22/Math.max(.01,zoom))||p.body;
+  const hit=hitPoint(e),body=paintedHit(e)||p.body;
   const group=groups.find(g=>g.id===body?.groupId)||groups.find(g=>hit.x>=g.hitRect.left&&hit.x<=g.hitRect.right&&hit.y>=g.hitRect.top&&hit.y<=g.hitRect.bottom);
   const action=p.exploring&&p.moved?'none':gestureAction({dx:p.x-p.startX,dy:p.y-p.startY,moved:p.moved,mode,body,group,cancelled});
   if(action==='next')travel(1);else if(action==='previous')travel(-1);else if(action==='drill')drill(group,body?.transaction);else if(action==='detail')openDetail(body.transaction);
