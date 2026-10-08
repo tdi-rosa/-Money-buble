@@ -150,14 +150,15 @@ function frame(timestamp){
   if(join&&!dragScene&&!pendingNavigation){
     join.progress=Math.min(1,join.progress+elapsed/join.duration);const t=1-Math.pow(1-join.progress,3);
     // Only the camera interpolates. Body positions come from springs and contacts.
-    fitZoom=1/((1/join.fromFit)*(1-t)+(1/join.toFit)*t);
-    if(join.progress===1){for(const b of field.bodies)if(b.inPeriod)delete b.travelSpeed;fitZoom=fitTarget;join=null;}
+    const destination=field.bodies.some(b=>b.departing)?Math.min(join.fromFit,join.toFit):join.toFit;
+    fitZoom=1/((1/join.fromFit)*(1-t)+(1/destination)*t);
+    if(join.progress===1){for(const b of field.bodies)if(b.inPeriod)delete b.travelSpeed;join=null;}
   }
   const scale=Math.max(.01,zoom*fitZoom);
   const physical=field.bodies.length>0&&!dragScene&&!pendingNavigation&&!slide&&simulate(elapsed,scale,!prefs.motion&&!join);
   if(!physical)pauseSimulation();
   // Follow the actual physical envelope, keeping the centre fixed during a join.
-  if(!join&&!bubbleDrag&&!pointer&&!pinch&&!dragScene&&!slide&&!pendingNavigation){
+  if(!join&&!bubbleDrag&&!pointer&&!pinch&&!dragScene&&!slide&&!pendingNavigation&&!field.bodies.some(b=>b.departing)){
     let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
     for(const b of field.bodies){if(!b.inPeriod)continue;left=Math.min(left,b.x-b.r);right=Math.max(right,b.x+b.r);top=Math.min(top,b.y-b.r);bottom=Math.max(bottom,b.y+b.r);}
     if(Number.isFinite(left)){const cropped=Math.min(6,Math.max(1,w-40)/(right-left+12),Math.max(1,h-48)/(bottom-top+12)),follow=1-Math.exp(-7*elapsed);
