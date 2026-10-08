@@ -19,16 +19,15 @@ export function resolveCollisions(bodies,{iterations=64,tolerance=.001,dragId=nu
     const grid=new Map();let worst=0;
     for(const b of visible){
       const gx=Math.floor(b.x/cell),gy=Math.floor(b.y/cell);
-      for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const other of grid.get(`${gx+dx},${gy+dy}`)||[]){
+      for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const other of grid.get((gx+dx)+(gy+dy)*65536)||[]){
         const ax=b.x-other.x,ay=b.y-other.y,distance=Math.hypot(ax,ay),gap=Math.min(b.collisionGap??2,other.collisionGap??2);
         const overlap=b.r+other.r+gap-distance;if(overlap<=tolerance)continue;worst=Math.max(worst,overlap);
-        const seed=(String(b.id)+String(other.id)).split('').reduce((n,c)=>n+c.charCodeAt(0),0)*2.3999632297;
-        const nx=distance>.00001?ax/distance:Math.cos(seed),ny=distance>.00001?ay/distance:Math.sin(seed);
+        let nx,ny;if(distance>.00001){nx=ax/distance;ny=ay/distance;}else{const seed=(String(b.id)+String(other.id)).split('').reduce((n,c)=>n+c.charCodeAt(0),0)*2.3999632297;nx=Math.cos(seed);ny=Math.sin(seed);}
         const invA=b.id===dragId?0:1/Math.max(1,b.r*b.r),invB=other.id===dragId?0:1/Math.max(1,other.r*other.r),total=invA+invB;
         if(!total)continue;const correction=(overlap+tolerance)/total;
         b.x+=nx*correction*invA;b.y+=ny*correction*invA;other.x-=nx*correction*invB;other.y-=ny*correction*invB;
       }
-      const key=`${Math.floor(b.x/cell)},${Math.floor(b.y/cell)}`;if(!grid.has(key))grid.set(key,[]);grid.get(key).push(b);
+      const key=Math.floor(b.x/cell)+Math.floor(b.y/cell)*65536;if(!grid.has(key))grid.set(key,[]);grid.get(key).push(b);
     }
     if(worst<=tolerance)break;
   }
