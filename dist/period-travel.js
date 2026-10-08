@@ -19,21 +19,27 @@ export class PeriodTravel {
     // At both endpoints the neighbouring cloud is already outside the viewport.
     this.distance=Math.max(width/minScale,rx(this.source)+rx(target)+40/minScale);
     this.shiftX=fromCamera.x+direction*this.distance-center.x;this.shiftY=fromCamera.y-center.y;
-    this.target=target.map((b,i)=>translateBody({...b,inPeriod:true,departing:false,departureView:null,cluster:true,arriving:false,phase:b.phase??i*2.3999632297,travelSpeed:450},this.shiftX,this.shiftY));
+    const existing=new Map(this.source.map(b=>[b.id,b])),targetIds=new Set(target.map(b=>b.id));
+    this.target=target.map((b,i)=>{
+      const shifted=translateBody({...b,inPeriod:true,departing:false,departureView:null,cluster:true,arriving:false,phase:b.phase??i*2.3999632297,travelSpeed:450},this.shiftX,this.shiftY),old=existing.get(b.id);
+      // A circle still leaving a previous mode may belong to the incoming period.
+      // Keep that visible instance and let its spring carry it to its new anchor.
+      if(old)Object.assign(shifted,{x:old.x,y:old.y,vx:old.vx||0,vy:old.vy||0,arriving:true});
+      return shifted;
+    });
+    this.source=this.source.filter(b=>!targetIds.has(b.id));
     this.bodies=[...this.source,...this.target];
   }
   camera(progress=this.progress){
     this.progress=Math.max(0,Math.min(1,progress));
     const p=this.progress,target=cloudCenter(this.target,this.width,this.height);
     if(!this.target.length){target.x=this.fromCamera.x+this.direction*this.distance;target.y=this.fromCamera.y;}
-    const x=this.fromCamera.x+(target.x-this.fromCamera.x)*p,y=this.fromCamera.y+(target.y-this.fromCamera.y)*p;
-    const base=swipeCropScale(this.fromCamera.scale,fitCloud(this.target,this.width,this.height,this.fromCamera.scale),p);
-    // Reveal the common world between endpoints, so the camera never crosses an
-    // empty gap while an oversized neighbour waits just outside the viewport.
-    let rx=0,ry=0;
-    for(const b of this.bodies){rx=Math.max(rx,Math.abs(b.x-x)+b.r);ry=Math.max(ry,Math.abs(b.y-y)+b.r);}
-    const overview=Math.min(6,Math.max(1,this.width-40)/(rx*2+12),Math.max(1,this.height-48)/(ry*2+12)),blend=p===0||p===1?0:Math.sin(Math.PI*p)**2;
-    const scale=1/((1-blend)/base+blend/overview);
+    const toScale=fitCloud(this.target,this.width,this.height,this.fromCamera.scale);
+    const scale=swipeCropScale(this.fromCamera.scale,toScale,p);
+    // Weight camera travel by the two physical extents. This keeps the smaller
+    // cloud in view until the larger neighbour enters, without a third zoom level.
+    const focus=p===0?0:p===1?1:p*toScale/((1-p)*this.fromCamera.scale+p*toScale);
+    const x=this.fromCamera.x+(target.x-this.fromCamera.x)*focus,y=this.fromCamera.y+(target.y-this.fromCamera.y)*focus;
     return {x,y,scale};
   }
   normalizedTarget(){return this.target.map(b=>translateBody(b,-this.shiftX,-this.shiftY));}

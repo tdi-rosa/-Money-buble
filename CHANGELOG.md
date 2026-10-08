@@ -1,3 +1,9 @@
+## 0.8.1
+
+- Supprime le dézoom panoramique au milieu du swipe : le zoom reste toujours entre les cadrages de départ et d’arrivée.
+- Pondère le déplacement de la caméra par la taille physique des deux amas pour garder une transition continue, sans flash de grosse bulle.
+- Réutilise une bulle encore en sortie d’un changement de mode si elle appartient à la période entrante : une seule instance physique, sans doublon ni téléportation.
+
 ## 0.8.0
 
 - Place les deux périodes dans une seule simulation vivante pendant le swipe, avec des collisions communes et une caméra unique.

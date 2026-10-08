@@ -20,7 +20,8 @@ test('tiny-to-giant and giant-to-tiny swipes keep monetary radii, fit during tra
   for(let i=0;i<=120;i++){
    const c=travel.camera(i/120),painted=paint(travel.bodies,c);
    assert.ok(painted.some(visible),'the camera must not cross a blank gap between clouds');
-   if(i===60)assert.ok(painted.every(visible),'both periods can be compared at the midpoint');
+   const toScale=fitCloud(target,width,height);
+   assert.ok(c.scale>=Math.min(camera(source).scale,toScale)-1e-9&&c.scale<=Math.max(camera(source).scale,toScale)+1e-9,'the crop must stay between endpoint scales, with no intermediate overview zoom');
    assert.deepEqual(travel.bodies.map(b=>b.r),radii);
    assert.ok(Math.abs(painted[0].r**2/painted[1].r**2-source[0].r**2/target[0].r**2)<1e-8);
    for(const p of painted)assert.ok(!(p.x-p.r<=0&&p.x+p.r>=width&&p.y-p.r<=0&&p.y+p.r>=height),'a giant must not cover the whole viewport before resizing');
@@ -60,4 +61,15 @@ test('navigation saves canonical live positions for an exact left-right return r
  history.save('month','2026-09-01',travel.source);history.save('month','2026-08-01',travel.normalizedTarget());
  const restored=history.restore('month','2026-08-01',target);assert.equal(restored[0].x,195);assert.equal(restored[0].y,220);
  assert.equal(history.restore('month','2026-09-01',source)[0].x,160);
+});
+
+test('a visible departing expense reused by the next period remains one continuous physical circle',()=>{
+ const old={id:'shared',x:280,y:250,tx:180,ty:250,centerX:180,centerY:250,r:20,targetR:20,inPeriod:false,departing:true,vx:5,vy:2};
+ const active={...old,id:'active',x:180,inPeriod:true,departing:false},incoming={...old,x:190,inPeriod:true,departing:false};
+ const travel=new PeriodTravel([active,old],[incoming],{width,height,direction:1,fromCamera:{x:180,y:250,scale:1}});
+ assert.equal(travel.bodies.filter(b=>b.id==='shared').length,1);
+ assert.equal(travel.target[0].x,280);assert.equal(travel.target[0].vx,5);assert.equal(travel.target[0].arriving,true);
+ assert.equal(travel.bodies.length,2);
+ const field=new BubbleField();field.bodies=travel.bodies;for(let i=0;i<60;i++)field.stepLive(1/120);
+ assert.ok(field.bodies.every(b=>[b.x,b.y,b.vx,b.vy].every(Number.isFinite)));
 });
