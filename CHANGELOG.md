@@ -1,3 +1,10 @@
+## 0.8.0
+
+- Place les deux périodes dans une seule simulation vivante pendant le swipe, avec des collisions communes et une caméra unique.
+- Écarte les centres selon les rayons physiques réels et le cadrage partagé, pour éviter qu’une grosse bulle entrante recouvre brusquement la vue.
+- Continue la physique pendant la navigation ; conserve les positions après l’aller-retour. Les bulles qui restent visibles ne sont pas supprimées à la fin du swipe.
+- Recadre simultanément au déplacement du doigt et à la fin du glissement.
+
 ## 0.7.9
 
 - Recadre pendant le déplacement du doigt et pendant la fin du swipe, avec un zoom partagé par les deux amas.
