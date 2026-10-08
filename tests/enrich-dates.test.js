@@ -1,0 +1,9 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {enrichPurchaseDates} from '../server/enrich-dates.js';
+import {mapTransactions} from '../server/bank.js';
+const now=Date.parse('2026-10-08T10:00:00Z');
+const row={status:'BOOK',credit_debit_indicator:'DBIT',transaction_amount:{amount:'12.80',currency:'EUR'},booking_date:'2026-10-08',transaction_id:'details-1',creditor:{name:'Marché'}};
+test('missing purchase dates are recovered automatically from details without changing identity or amount',async()=>{const detailed=await enrichPurchaseDates([row],async id=>{assert.equal(id,'details-1');return {transaction_date:'2026-10-07',transaction_amount:{amount:'99.00',currency:'EUR'}}},now);assert.equal(detailed[0].transaction_date,'2026-10-07');assert.equal(detailed[0].transaction_amount.amount,'12.80');assert.equal(mapTransactions(detailed,'a')[0].id,mapTransactions([row],'a')[0].id);assert.equal(row.transaction_date,undefined)});
+test('dated, unsupported and old entries do not trigger detail calls; optional failure never hides a purchase',async()=>{let calls=0;const input=[row,{...row,transaction_date:'2026-10-07'},{...row,transaction_id:null},{...row,booking_date:'2026-09-01'}];const detailed=await enrichPurchaseDates(input,async()=>{calls++;throw Error('Unavailable')},now);assert.equal(calls,1);assert.equal(detailed.length,4);assert.equal(mapTransactions(detailed,'a').length,4)});
+test('detail lookups are bounded and session expiry stays actionable',async()=>{let calls=0;await enrichPurchaseDates(Array.from({length:30},(_,i)=>({...row,transaction_id:String(i)})),async()=>{calls++;return {}},now);assert.equal(calls,6);await assert.rejects(enrichPurchaseDates([row],async()=>{throw Object.assign(Error(),{code:'reconnect'})},now),e=>e.code==='reconnect')});

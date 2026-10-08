@@ -12,3 +12,5 @@ export function extent(packs){let w=230,h=180;for(const pack of packs)for(const 
 
 
 export function mergePurchaseDates(next,previous){const known=new Map(previous.filter(t=>validDate(t.date)&&['transaction','label'].includes(t.dateBasis)).map(t=>[t.id,t]));return next.map(t=>{const old=known.get(t.id);return t.date===null&&old?{...t,date:old.date,dateBasis:old.dateBasis}:t})}
+
+export function displayPurchaseDates(items){return items.map(t=>t.date===null&&validDate(t.bookingDate)?{...t,date:t.bookingDate,dateBasis:'estimated'}:t)}
