@@ -47,12 +47,15 @@ canvas{touch-action:none}.camera-label{pointer-events:none}.stage{flex-shrink:1;
 
 img.logo{display:block;width:30px;height:30px;object-fit:contain;background:transparent}.camera-label .day-spend{pointer-events:none;margin:0;line-height:14px}
 
-/* A thicker liquid reservoir, animated by compositor transforms only. */
-.gauge{height:14px;border-radius:9px;background:#e9e9ef;overflow:hidden;position:relative;margin-top:12px}
-#gaugeFill{height:100%;border-radius:9px;position:relative;min-width:0;transition:width .65s cubic-bezier(.22,.75,.25,1);overflow:hidden}
-#gaugeFill::after{content:"";position:absolute;inset:-7px -22px;background:linear-gradient(110deg,transparent 20%,#ffffff22 45%,transparent 70%);transform:translateX(-20%);animation:reservoir-wave 4s ease-in-out infinite alternate;pointer-events:none}
-@keyframes reservoir-wave{to{transform:translateX(20%) translateY(3px)}}
-#walletReference{display:block;margin-top:7px;font-size:9px;color:#858591;text-align:right;font-weight:400}
+/* The mean of the simulated meniscus encodes the exact balance. */
+.gauge{height:26px;border-radius:13px;background:#e6e7ee;overflow:hidden;position:relative;margin-top:12px}
+#gaugeFill{width:100%;height:100%;position:absolute;inset:0;background:transparent!important;border-radius:0;transition:none}
+#gaugeFluid{display:block;width:100%;height:100%;fill:#5262a8}
+.wallet.low #gaugeFluid{fill:#b78952}.wallet.negative #gaugeFluid{fill:#ae6571}
+.gauge-previous{position:absolute;top:3px;bottom:3px;width:0;border-left:1px dashed #262b5866;opacity:0;pointer-events:none;transition:opacity .4s}
+.gauge-previous.visible{opacity:1}
+.wallet-meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:7px;min-height:14px}
+#walletReference{display:block;font-size:9px;color:#858591;text-align:right;font-weight:400;margin-left:auto}
+#walletDelta{font-size:11px;font-weight:550;color:#5262a8;opacity:0;transform:translateY(3px);transition:opacity .2s,transform .3s;white-space:nowrap}
+#walletDelta.visible{opacity:1;transform:translateY(0)}
 #walletPeriod{font-size:11px;line-height:1.6}.wallet-label #balanceCaption{font-size:11px}
-.wallet.unset #gaugeFill::after{display:none}
-body.reduce-motion #gaugeFill::after{animation:none}

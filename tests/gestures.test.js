@@ -4,9 +4,15 @@ const view=(mode='day',zoom=1)=>({mode,zoom,pan:0,panY:0,width:360,height:420});
 test('successive swipes are independent sessions, including during a previous animation',()=>{
  const g=new GestureSession();for(let i=0;i<5;i++){const t=i*70;g.down(1,{x:250,y:200},t,view(),{id:'expense'});assert.equal(g.move(1,{x:224,y:202},t+35,view()).type,'swipe');assert.equal(g.up(1,{x:224,y:202},t+45,view()).type,'navigate');assert.equal(g.contacts.size,0);assert.equal(g.pointer,null);}
 });
-test('pinch can reverse through week and month without lifting either finger',()=>{
- const g=new GestureSession();let v=view();g.down(1,{x:100,y:210},0,v);g.down(2,{x:260,y:210},0,v);
- for(const [x,expected] of [[220,'week'],[260,'day'],[220,'week'],[188,'month'],[220,'week'],[260,'day']]){const result=g.move(2,{x,y:210},20,v);assert.equal(result.nextMode,expected);v=view(expected);assert.equal(g.contacts.size,2);}
+test('every mode permits bounded zoom, reversing and two-finger pan without changing periods',()=>{
+ for(const mode of ['day','week','month']){
+ const g=new GestureSession(),v=view(mode);g.down(1,{x:100,y:210},0,v);g.down(2,{x:260,y:210},0,v);
+ const out=g.move(2,{x:180,y:210},20,v);assert.equal(out.zoom,.6);assert.equal(out.nextMode,undefined);
+ const back=g.move(2,{x:184,y:210},40,v);assert.ok(back.zoom>.6);assert.equal(back.nextMode,undefined);
+ assert.equal(g.move(2,{x:1500,y:210},60,v).zoom,6);
+ assert.ok(g.move(2,{x:1499,y:210},80,v).zoom<6);
+ const pan=new GestureSession();pan.down(1,{x:100,y:210},0,v);pan.down(2,{x:260,y:210},0,v);pan.move(2,{x:300,y:230},80,v);const shifted=pan.move(1,{x:140,y:230},100,v);assert.equal(shifted.zoom,1);assert.equal(shifted.pan,40);assert.equal(shifted.panY,20);assert.equal(g.contacts.size,2);
+ }
 });
 test('lifting a pinch finger hands off to pan and duplicate capture loss cannot end it',()=>{
  const g=new GestureSession(),v=view('day',2);g.down(1,{x:100,y:210},0,v);g.down(2,{x:260,y:210},0,v);g.up(2,{x:260,y:210},20,v);assert.equal(g.up(2,{x:260,y:210},21,v,true),undefined);assert.equal(g.move(1,{x:115,y:225},30,v).type,'pan');assert.equal(g.up(1,{x:115,y:225},40,v).type,'end');assert.equal(g.contacts.size,0);

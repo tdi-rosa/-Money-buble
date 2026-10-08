@@ -1,3 +1,4 @@
+import {FluidGauge} from './fluid-gauge.js';
 import {hitRenderedBubbles} from './bubble-layout.js';
 import {GestureSession} from './gestures.js';
 import {openBankWindow} from './bank-window.js';
@@ -7,7 +8,7 @@ import {categories,paymentKinds,paymentColor,merchantKey,euro,dateKey,shiftDate,
 import {BubbleField} from './physics.js';
 import {autoUpdates,releaseBusy} from './updates.js';
 import {bounds,navigate,groupTransactions,sum} from './periods.js';
-const $=id=>document.getElementById(id),today=dateKey(),field=new BubbleField(),canvas=$('canvas'),ctx=canvas.getContext('2d'),stage=$('stage');
+const $=id=>document.getElementById(id),today=dateKey(),field=new BubbleField(),canvas=$('canvas'),ctx=canvas.getContext('2d'),stage=$('stage'),liquid=new FluidGauge($('gauge'));
 const keys={tx:'bulles-transactions-v1',notes:'bulles-reflections-v1',balance:'money-bubble-balance-v1',prefs:'money-bubble-prefs-v1',bank:'money-bubble-bank-display-v1',linked:'money-bubble-bank-linked-v1',merchantRules:'money-bubble-merchant-rules-v1'};let bankActive=false,bankFresh=false,bankConnecting=false,bankChecking=false,bankBusy=false,bankBalance=null,bankAccounts=[],bankAccountId=null,bankLastSync=0,bankUpdatedAt=null;let data=[],cashflow=[],walletView=null,demo=true,notes={},balance=null,prefs={motion:matchMedia('(prefers-reduced-motion: reduce)').matches,privacy:false,haptics:false},mode='day',selected=today,scene=null,groups=[],pointer=null,raf=0,last=0,accumulator=0,w=400,h=400,activeTransaction=null,installPrompt=null,hiddenWarning=false;
 function read(key,fallback){try{const raw=localStorage.getItem(key);return raw?JSON.parse(raw):fallback}catch{return fallback}}
 function save(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true}catch{toast('Stockage indisponible. Les changements ne seront pas conservés.');return false}}
@@ -25,15 +26,15 @@ const layoutWorker=new Worker(new URL('./layout-worker.js',import.meta.url),{typ
 let layoutRevision=0,pendingNavigation=null,layoutPayload=null,lastLayoutData=null,lastLayoutSize='',transactionsById=new Map(),levelFit={day:1,week:.5,month:.25};
 const previews=new Map(),layouts=new Map(),bodyPool=new Map();
 const simulationWorker=new Worker(new URL('./simulation-worker.js',import.meta.url),{type:'module'});
-let simulationRevision=0,simulationBodies=null,simulationPositions=null,simulationRunning=false;
-simulationWorker.onmessage=({data:result})=>{if(result.revision===simulationRevision){simulationPositions=result.positions;field.time=result.time??field.time;wake();}};
+let simulationRevision=0,simulationBodies=null,simulationPositions=null,simulationArrivals=null,simulationRunning=false;
+simulationWorker.onmessage=({data:result})=>{if(result.revision===simulationRevision){simulationPositions=result.positions;simulationArrivals=result.arrivals;field.time=result.time??field.time;wake();}};
 function simulate(elapsed,scale,organic){
   if(field.bodies.length<=60){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;}return field.stepLive(elapsed,{pixelScale:scale,organic});}
   const message={running:true,options:{pixelScale:scale,organic},dragId:field.dragId,dragTarget:field.dragTarget};
-  if(simulationBodies!==field.bodies){simulationBodies=field.bodies;simulationPositions=null;message.revision=++simulationRevision;message.time=field.time||0;
-    message.bodies=field.bodies.map(({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,departing,travelSpeed})=>({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,departing,travelSpeed}));}
+  if(simulationBodies!==field.bodies){simulationBodies=field.bodies;simulationPositions=simulationArrivals=null;message.revision=++simulationRevision;message.time=field.time||0;
+    message.bodies=field.bodies.map(({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,arriving,departing,travelSpeed})=>({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,arriving,departing,travelSpeed}));}
   simulationWorker.postMessage(message);simulationRunning=true;
-  if(simulationPositions){const follow=1-Math.exp(-20*elapsed);for(let i=0;i<field.bodies.length;i++){const b=field.bodies[i];b.x+=(simulationPositions[i*4]-b.x)*follow;b.y+=(simulationPositions[i*4+1]-b.y)*follow;b.vx=simulationPositions[i*4+2];b.vy=simulationPositions[i*4+3];}}
+  if(simulationPositions){const follow=1-Math.exp(-20*elapsed);for(let i=0;i<field.bodies.length;i++){const b=field.bodies[i];b.x+=(simulationPositions[i*4]-b.x)*follow;b.y+=(simulationPositions[i*4+1]-b.y)*follow;b.vx=simulationPositions[i*4+2];b.vy=simulationPositions[i*4+3];if(simulationArrivals)b.arriving=!!simulationArrivals[i];}}
   return true;
 }
 function pauseSimulation(){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;simulationBodies=null;}}
@@ -44,7 +45,7 @@ function receiveLayout(result){
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
   levelFit=result.fitByMode||levelFit;layouts.set(mode+':'+selected,result);
   const navigation=pendingNavigation;pendingNavigation=null;
-  if(navigation||prefs.motion){field.bodies=result.specs.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,phase:i*2.3999632297,retired:false,departing:false,travelSpeed:null,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;join=null;if(navigation)slide={...navigation,progress:0};}
+  if(navigation||prefs.motion){field.bodies=result.specs.map((s,i)=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,phase:i*2.3999632297,retired:false,arriving:false,departing:false,travelSpeed:450,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;join=null;if(navigation)slide={...navigation,progress:0};}
   else beginJoin(result);
   if(layoutPayload){
     const requests=[{mode,date:navigate(selected,mode,-1)},{mode,date:navigate(selected,mode,1)},...modes.filter(m=>m!==mode).map(mode=>({mode,date:selected}))];
@@ -87,7 +88,7 @@ function beginJoin(result){
       x=w/2+(length>1?dx/length:Math.cos(angle))*reach;y=h/2+(length>1?dy/length:Math.sin(angle))*reach;
       if(!previous.size){x=s.tx+Math.cos(angle)*Math.min(14,s.targetR*.25);y=s.ty+Math.sin(angle)*Math.min(14,s.targetR*.25);}
     }
-    Object.assign(b,s,{x,y,motionX:s.tx,motionY:s.ty,r:s.targetR,alpha:1,retired:false,departing:false,travelSpeed:450,vx:b.vx||0,vy:b.vy||0,phase:i*2.3999632297,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;
+    Object.assign(b,s,{x,y,motionX:s.tx,motionY:s.ty,r:s.targetR,alpha:1,retired:false,arriving:!!previous.size&&(!old||old.departing),departing:false,travelSpeed:450,vx:b.vx||0,vy:b.vy||0,phase:i*2.3999632297,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;
   });
   for(const b of previous.values())if(!active.has(b.id)){
     const dx=b.x-w/2,dy=b.y-h/2,length=Math.hypot(dx,dy)||1,reach=Math.max(w,h)/Math.max(.05,fitZoom)+b.r*2;
@@ -152,7 +153,7 @@ function frame(timestamp){
     // Only the camera interpolates. Body positions come from springs and contacts.
     const destination=field.bodies.some(b=>b.departing)?Math.min(join.fromFit,join.toFit):join.toFit;
     fitZoom=1/((1/join.fromFit)*(1-t)+(1/destination)*t);
-    if(join.progress===1){for(const b of field.bodies)if(b.inPeriod)delete b.travelSpeed;join=null;}
+    if(join.progress===1)join=null;
   }
   const scale=Math.max(.01,zoom*fitZoom);
   const physical=field.bodies.length>0&&!dragScene&&!pendingNavigation&&!slide&&simulate(elapsed,scale,!prefs.motion&&!join);
@@ -166,7 +167,7 @@ function frame(timestamp){
   }
   if(!join){const active=field.bodies.filter(b=>b.inPeriod||Math.abs(b.x-cameraX)*scale<w/2+b.r*scale&&Math.abs(b.y-cameraY)*scale<h/2+b.r*scale);if(active.length!==field.bodies.length)field.bodies=active;}
 
-  draw();$('recenter').hidden=zoomTarget<=1.04&&Math.abs(panTarget)<2&&Math.abs(panYTarget)<2;
+  draw();$('recenter').hidden=Math.abs(zoomTarget-1)<=.04&&Math.abs(panTarget)<2&&Math.abs(panYTarget)<2;
   if(physical||returningSwipe||slide||(join&&!dragScene&&!pendingNavigation)||Math.abs(pan-panTarget)>.05||Math.abs(panY-panYTarget)>.05||Math.abs(zoom-zoomTarget)>.001)raf=requestAnimationFrame(frame);
 }
 function wake(){if(!raf&&!document.hidden){last=0;raf=requestAnimationFrame(frame)}}
@@ -190,8 +191,7 @@ canvas.addEventListener('pointermove',e=>{
     swipeOffset=result.dx;dismissHint();
   }else if(result.type==='pan'){pan=panTarget=result.pan-(w/2-cameraX)*zoom*fitZoom;panY=panYTarget=result.panY-(h/2-cameraY)*zoom*fitZoom;dismissHint();}
   else if(result.type==='pinch'){
-    if(result.nextMode){changeMode(result.nextMode,{fromPinch:true});haptic();}
-    panTarget=result.nextMode?0:result.pan-(w/2-cameraX)*result.zoom*fitZoom;panYTarget=result.nextMode?0:result.panY-(h/2-cameraY)*result.zoom*fitZoom;zoomTarget=result.zoom;
+    panTarget=result.pan-(w/2-cameraX)*result.zoom*fitZoom;panYTarget=result.panY-(h/2-cameraY)*result.zoom*fitZoom;zoomTarget=result.zoom;
     if(performance.now()>=cameraSettlingUntil){pan=panTarget;panY=panYTarget;zoom=zoomTarget;}dismissHint();
   }wake();
 });
@@ -200,7 +200,6 @@ function endPointer(e,cancelled=false){
   if(result.type==='navigate')travel(result.direction);
   else if(result.type==='tap'){const body=paintedHit(e)||result.body;if(body)openDetail(body.transaction);}
   else if(result.type==='end'&&dragScene){returningSwipe=true;}
-  if(!pointer&&!pinch&&zoomTarget<1){zoomTarget=1;panTarget=panYTarget=0;}
   wake();
 }
 canvas.addEventListener('pointerup',e=>endPointer(e));canvas.addEventListener('pointercancel',e=>endPointer(e,true));canvas.addEventListener('lostpointercapture',e=>endPointer(e,true));
@@ -218,7 +217,7 @@ function updateWallet(){
   $('balanceSource').textContent=value?.historical?'· au '+dateFmt(value.date,{day:'numeric',month:'short'}):bankActive?(!bankFresh?'· dernière synchro BNP':bankBalance?.available?'· BNP':'· comptable BNP'):balance?'· saisi':demo?'· démo':'';
   $('balanceAmount').textContent=value?amount(value.amount):actual?'historique indisponible':'à renseigner';wallet.classList.toggle('unset',!value);
   const ratio=value?.ratio??0;wallet.classList.toggle('low',!!value&&value.ratio!==null&&ratio<.25&&value.amount>=0);wallet.classList.toggle('negative',!!value&&value.amount<0);
-  $('gaugeFill').style.width=prefs.privacy?'50%':`${ratio*100}%`;
+  liquid.update(value,{privacy:prefs.privacy,reduced:prefs.motion,format:euro});
   $('gauge').setAttribute('aria-valuemin','0');$('gauge').setAttribute('aria-valuemax',String(prefs.privacy?100:value?.reference||100));
   if(value?.reference&&!prefs.privacy)$('gauge').setAttribute('aria-valuenow',String(Math.max(0,Math.min(value.reference,value.amount))));else $('gauge').removeAttribute('aria-valuenow');
   $('gauge').setAttribute('aria-label','Réservoir du compte');$('gauge').setAttribute('aria-valuetext',prefs.privacy?'Montant masqué':value?`${euro(value.amount)}${value.historical?' estimé au '+value.date:' disponible'}${value.reference?' ; réservoir '+euro(value.reference):' ; apport à renseigner'}`:'Solde non disponible pour cette période');
@@ -231,7 +230,7 @@ $('walletButton').onclick=()=>{
  const actual=bankActive?bankBalance:balance||(demo?{amount:84230}:null),automatic=!!walletView?.funding;
  $('balanceInput').readOnly=bankActive;$('clearBalance').hidden=bankActive;$('balanceInput').value=actual?String(actual.amount/100).replace('.',','):'';
  $('referenceInput').readOnly=automatic;$('referenceInput').value=walletView?.reference?String(walletView.reference/100).replace('.',','):'';
- $('walletExplanation').textContent=walletView?.funding?`Le réservoir représente le principal apport reçu : ${amount(walletView.reference)}, le ${dateFmt(walletView.funding.date,{day:'numeric',month:'long'})}. Les dépenses le vident ; les petites entrées le remplissent sans changer ce repère.`:'Les dépenses vident le réservoir, les entrées le remplissent. Le repère sera calculé automatiquement dès qu’un apport sera reçu ; tu peux le renseigner en attendant.';
+ $('walletExplanation').textContent=walletView?.funding?`Le plein représente ${amount(walletView.reference)} disponibles après le principal apport de ${amount(walletView.funding.amountCents)}, reçu le ${dateFmt(walletView.funding.date,{day:'numeric',month:'long'})}, reliquat inclus. Les dépenses le vident ; les petites entrées le remplissent sans changer ce repère.`:'Les dépenses vident le réservoir, les entrées le remplissent. Le repère sera calculé automatiquement dès qu’un apport sera reçu ; tu peux le renseigner en attendant.';
  $('walletPeriod').textContent=walletView?.historical?`Solde estimé à la fin du ${dateFmt(walletView.date,{day:'numeric',month:'long'})}, reconstruit depuis le solde actuel et les mouvements reçus. L’historique bancaire peut être incomplet.`:'Le solde affiché correspond à la période sélectionnée, jusqu’à aujourd’hui.';
  show('walletSheet');
 };

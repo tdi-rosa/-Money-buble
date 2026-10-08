@@ -29,7 +29,7 @@ export class BubbleField {
         }else{
           const amplitude=organic&&b.inPeriod!==false?Math.min(4/Math.max(.01,pixelScale),Math.max(1/Math.max(.01,pixelScale),b.r*.22)):0,phase=b.phase??0;
           const clustering=b.cluster&&b.inPeriod!==false;
-          const x=(clustering?b.centerX:b.motionX??b.tx)+Math.sin(this.time*.9+phase)*amplitude,y=(clustering?b.centerY:b.motionY??b.ty)+Math.cos(this.time*.7+phase)*amplitude,arriving=clustering&&Math.hypot(b.x-b.centerX,b.y-b.centerY)>Math.hypot(b.tx-b.centerX,b.ty-b.centerY)+b.r*2+20,
+          const x=(clustering?b.centerX:b.motionX??b.tx)+Math.sin(this.time*.9+phase)*amplitude,y=(clustering?b.centerY:b.motionY??b.ty)+Math.cos(this.time*.7+phase)*amplitude,arriving=clustering&&(b.arriving===true||(b.arriving===undefined&&Math.hypot(b.x-b.centerX,b.y-b.centerY)>Math.hypot(b.tx-b.centerX,b.ty-b.centerY)+b.r*2+20)),
             damping=Math.exp(-(arriving?12:clustering?5:12)*delta),spring=arriving||b.departing?35:clustering?1:55;
           b.vx=(b.vx+(x-b.x)*spring*delta)*damping;b.vy=(b.vy+(y-b.y)*spring*delta)*damping;
           const speed=Math.hypot(b.vx,b.vy),limit=b.travelSpeed/Math.max(.05,pixelScale);if(b.travelSpeed&&speed>limit){b.vx*=limit/speed;b.vy*=limit/speed;}
@@ -109,6 +109,7 @@ function resolveLiveContacts(bodies,{tolerance,dragId}){
           if(b===other)continue;const pair=String(b.id)<String(other.id)?JSON.stringify([b.id,other.id]):JSON.stringify([other.id,b.id]);if(seen.has(pair))continue;seen.add(pair);
           const ax=b.x-other.x,ay=b.y-other.y,minimum=b.r+other.r+Math.min(b.collisionGap??2,other.collisionGap??2);
           if(Math.abs(ax)>=minimum||Math.abs(ay)>=minimum)continue;const distance=Math.hypot(ax,ay),overlap=minimum-distance;if(overlap<=tolerance)continue;
+          if(b.inPeriod!==false&&other.inPeriod!==false){if(b.arriving===true&&other.arriving!==true)b.arriving=false;if(other.arriving===true&&b.arriving!==true)other.arriving=false;}
           worst=Math.max(worst,overlap);const nx=distance>.00001?ax/distance:1,ny=distance>.00001?ay/distance:0,invA=b.id===dragId?0:1/Math.max(1,b.r*b.r),invB=other.id===dragId?0:1/Math.max(1,other.r*other.r),total=invA+invB;if(!total)continue;
           const correction=(overlap+tolerance)/total;b.x+=nx*correction*invA;b.y+=ny*correction*invA;other.x-=nx*correction*invB;other.y-=ny*correction*invB;
           const closing=(b.vx-other.vx)*nx+(b.vy-other.vy)*ny;if(closing<0){const impulse=-1.08*closing/total;b.vx+=nx*impulse*invA;b.vy+=ny*impulse*invA;other.vx-=nx*impulse*invB;other.vy-=ny*impulse*invB;}

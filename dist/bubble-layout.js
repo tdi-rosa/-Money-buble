@@ -41,8 +41,4 @@ export function hitRenderedBubbles(regions,event,rect,bitmap){
   return visible.find(b=>distance(b)<=b.r)?.body||visible.filter(b=>distance(b)<=Math.max(b.r,22*bitmap.width/rect.width)).sort((a,b)=>distance(a)-distance(b))[0]?.body;
 }
 
-// Rebase the pinch distance at each boundary so fingers can reverse continuously.
-export function pinchMode(mode,scale){
-  const modes=['day','week','month'],i=modes.indexOf(mode);
-  return modes[Math.max(0,Math.min(2,scale<.78?i+1:scale>1.26?i-1:i))];
-}
+

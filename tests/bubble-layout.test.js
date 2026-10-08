@@ -133,7 +133,6 @@ test('every part of a painted circle is clickable at mobile DPR, after scrolling
   }
  }
 });
-import {pinchMode} from '../dist/bubble-layout.js';
 test('short quick swipes navigate while slow taps and vertical scrolls do not',()=>{
  assert.equal(gestureAction({dx:-24,dy:3,moved:true,duration:50,mode:'day'}),'next');
  assert.equal(gestureAction({dx:24,dy:3,moved:true,duration:50,mode:'day'}),'previous');
@@ -141,10 +140,4 @@ test('short quick swipes navigate while slow taps and vertical scrolls do not',(
  assert.equal(gestureAction({dx:40,dy:60,moved:true,duration:50,mode:'day'}),'none');
  assert.equal(gestureAction({dx:40,dy:3,moved:true,duration:500,mode:'day'}),'previous');
 });
-test('a held pinch can zoom out, reverse and cross multiple period boundaries',()=>{
- let mode='day',baseline=100;
- for(const [distance,expected] of [[75,'week'],[100,'day'],[74,'week'],[55,'month'],[74,'week'],[98,'day']]){
-  const next=pinchMode(mode,distance/baseline);if(next!==mode)baseline=distance;mode=next;assert.equal(mode,expected);
- }
- assert.equal(pinchMode('day',6),'day');assert.equal(pinchMode('month',.5),'month');
-});
+

@@ -43,3 +43,13 @@ test('arrival and departure share a screen speed limit while the camera zoom cha
  assert.equal(f.bodies[0].alpha,1);assert.equal(f.bodies[0].r,10);
  }
 });
+test('an incoming circle moves at the same velocity as its symmetric outgoing circle before contact',()=>{
+ const incoming=new BubbleField(),outgoing=new BubbleField();
+ incoming.bodies=[{id:'in',x:1000,y:0,tx:0,ty:0,centerX:0,centerY:0,cluster:true,arriving:true,inPeriod:true,r:10,targetR:10,travelSpeed:450}];
+ outgoing.bodies=[{id:'out',x:0,y:0,tx:1000,ty:0,motionX:1000,motionY:0,departing:true,inPeriod:false,r:10,targetR:10,travelSpeed:450}];
+ for(let i=0;i<120;i++){incoming.stepLive(1/120);outgoing.stepLive(1/120);assert.ok(Math.abs(incoming.bodies[0].vx+outgoing.bodies[0].vx)<1e-8);}
+});
+test('an arrival switches to the gentle living cloud after contact, without swallowing or overlapping it',()=>{
+ const f=new BubbleField();f.bodies=[{id:'anchor',x:0,y:0,tx:0,ty:0,centerX:0,centerY:0,cluster:true,arriving:false,inPeriod:true,r:20,targetR:20,collisionGap:1},{id:'new',x:200,y:0,tx:40,ty:0,centerX:0,centerY:0,cluster:true,arriving:true,inPeriod:true,r:15,targetR:15,travelSpeed:450,collisionGap:1}];
+ for(let i=0;i<300;i++)f.stepLive(1/120,{organic:true});assert.equal(f.bodies[1].arriving,false);assert.ok(Math.hypot(f.bodies[0].x-f.bodies[1].x,f.bodies[0].y-f.bodies[1].y)>=35);assert.equal(f.bodies.length,2);
+});

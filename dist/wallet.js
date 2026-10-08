@@ -12,6 +12,7 @@ export function walletAt({balance,flows=[],date,mode='day',asOf=dateKey(),refere
  let amount=balance.amount;for(const f of eligible)if(f.date>cutoff)amount-=f.amountCents;
  let capacity=0,funding=null;
  for(const f of [...eligible].sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id)))if(f.date<=cutoff&&f.amountCents>0&&f.status!=='pending'&&f.amountCents>=capacity){capacity=f.amountCents;funding=f;}
+ if(funding){let filled=balance.amount;for(const f of eligible)if(f.date>=funding.date&&f.id!==funding.id)filled-=f.amountCents;capacity=filled>0?filled:funding.amountCents;}
  if(!capacity)capacity=Number.isSafeInteger(reference)&&reference>0?reference:null;
  return {amount,reference:capacity,ratio:capacity?Math.max(0,Math.min(1,amount/capacity)):null,date:cutoff,historical:cutoff<asOf,estimated:cutoff<asOf,funding,overflow:capacity?Math.max(0,amount-capacity):0};
 }

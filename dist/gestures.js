@@ -1,4 +1,4 @@
-import {pinchMode,gestureAction} from './bubble-layout.js';
+import {gestureAction} from './bubble-layout.js';
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 // One input session survives animations, direction changes and finger handoffs.
 // Coordinates are CSS pixels; the render loop consumes the latest result once.
@@ -13,14 +13,13 @@ export class GestureSession {
       return {type:'pinchstart'};
     }
     if(this.contacts.size!==1)return;
-    this.pointer={id,startX:p.x,startY:p.y,x:p.x,y:p.y,body,moved:false,axis:null,started:time,samples:[{...p,time}],startPan:view.pan,startPanY:view.panY,exploring:view.zoom>1.04};
+    this.pointer={id,startX:p.x,startY:p.y,x:p.x,y:p.y,body,moved:false,axis:null,started:time,samples:[{...p,time}],startPan:view.pan,startPanY:view.panY,exploring:Math.abs(view.zoom-1)>.04};
   }
   move(id,p,time,view){
     if(!this.contacts.has(id))return;this.contacts.set(id,p);
     if(this.pinch){if(this.contacts.size!==2)return;const [a,b]=[...this.contacts.values()],distance=Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),center={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
-      const desired=this.pinch.zoom*distance/this.pinch.distance,nextMode=pinchMode(view.mode,desired);
-      if(nextMode!==view.mode){this.pinch.distance=distance;this.pinch.zoom=1;this.pinch.anchor={...center};return {type:'pinch',nextMode,zoom:1,pan:0,panY:0};}
-      const zoom=clamp(desired,view.mode==='month'?.82:.6,view.mode==='day'?6:1.4),anchor=this.pinch.anchor;
+      const desired=this.pinch.zoom*distance/this.pinch.distance,zoom=clamp(desired,.6,6),anchor=this.pinch.anchor;
+      if(desired!==zoom){this.pinch.zoom=zoom;this.pinch.distance=distance;}
       return {type:'pinch',zoom,pan:center.x-view.width/2-(anchor.x-view.width/2)*zoom,panY:center.y-view.height/2-(anchor.y-view.height/2)*zoom};
     }
     const g=this.pointer;if(!g||g.id!==id)return;

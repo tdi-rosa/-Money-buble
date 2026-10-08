@@ -1,3 +1,11 @@
+## 0.7.5
+
+- Pincement limité à 0,6×–6× dans chaque mode ; déplacement à deux doigts et inversion continue, sans changer de période.
+- Attraction de regroupement et dispersion utilisent le même ressort, amortissement et plafond de vitesse à l’écran.
+- Le plein du réservoir inclut le reliquat disponible avant le principal apport, sans le réajuster à chaque dépense.
+- Surface liquide amortie, proportionnelle au solde, avec repère du niveau précédent et variation temporaire pour percevoir les petits écarts.
+- L’animation liquide s’arrête au repos et respecte la préférence de réduction du mouvement.
+
 ## 0.7.4
 
 - Retire le déplacement individuel au doigt, en conservant les gestes de navigation et le toucher des dépenses.
