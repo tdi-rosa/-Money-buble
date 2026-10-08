@@ -14,9 +14,9 @@ export function bubbleRadii(values,{budget=18000,maxRadius=120,areaScale}={}){
   const k=areaScale??Math.min(total?budget/total:0,largest?maxRadius**2/largest:0);
   return values.map(v=>Math.sqrt(Math.max(0,v)*k));
 }
-export function gestureAction({dx,dy,moved,mode,body,group,cancelled}){
+export function gestureAction({dx,dy,moved,mode,body,group,cancelled,duration=Infinity}){
   if(cancelled)return 'none';
-  if(Math.abs(dx)>65&&Math.abs(dx)>Math.abs(dy)*1.25)return dx<0?'next':'previous';
+  if((Math.abs(dx)>36||(Math.abs(dx)>18&&Math.abs(dx)/Math.max(1,duration)>.35))&&Math.abs(dx)>Math.abs(dy)*1.2)return dx<0?'next':'previous';
   if(moved)return 'none';
   if(mode!=='day'&&group)return 'drill';
   return body?'detail':'none';
@@ -92,4 +92,10 @@ export function hitRenderedBubbles(regions,event,rect,bitmap){
   const distance=b=>Math.hypot(x-b.x,y-b.y);
   const visible=[...regions].reverse();
   return visible.find(b=>distance(b)<=b.r)?.body||visible.filter(b=>distance(b)<=Math.max(b.r,22*bitmap.width/rect.width)).sort((a,b)=>distance(a)-distance(b))[0]?.body;
+}
+
+// Rebase the pinch distance at each boundary so fingers can reverse continuously.
+export function pinchMode(mode,scale){
+  const modes=['day','week','month'],i=modes.indexOf(mode);
+  return modes[Math.max(0,Math.min(2,scale<.78?i+1:scale>1.26?i-1:i))];
 }
