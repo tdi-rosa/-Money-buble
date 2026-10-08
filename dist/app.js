@@ -30,7 +30,7 @@ function receiveLayout(result){
   if(result.error){toast('Impossible de calculer les bulles. Réouvre l’application.');return;}
   levelFit=result.fitByMode||levelFit;layouts.set(mode+':'+selected,result);
   const navigation=pendingNavigation;pendingNavigation=null;
-  if(navigation||prefs.motion){field.bodies=result.specs.map(s=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;join=null;if(navigation)slide={...navigation,progress:0};}
+  if(navigation||prefs.motion){field.bodies=result.specs.map(s=>{let b=bodyPool.get(s.id)||{};Object.assign(b,s,{x:s.tx,y:s.ty,motionX:s.tx,motionY:s.ty,vx:0,vy:0,retired:false,r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;});fitZoom=fitTarget=result.fitZoom;join=null;if(navigation)slide={...navigation,progress:0};}
   else beginJoin(result);
   if(layoutPayload){
     const requests=[{mode,date:navigate(selected,mode,-1)},{mode,date:navigate(selected,mode,1)},...modes.filter(m=>m!==mode).map(mode=>({mode,date:selected}))];
@@ -52,7 +52,8 @@ function refresh(){previews.clear();title();const displayed=displayPurchaseDates
 }
 const modes=['day','week','month'],gestures=new GestureSession();
 let join=null,fitZoom=1,fitTarget=1,slide=null,dragScene=null,swipeOffset=0,returningSwipe=false,pan=0,panTarget=0,panY=0,panYTarget=0,zoom=1,zoomTarget=1,pinch=null,cameraSettlingUntil=0;
-let renderedRegions=[];
+let renderedRegions=[],bubbleDrag=null;
+function releaseBubble(){field.dragId=null;field.dragTarget=null;bubbleDrag=null;}
 function view(){return {mode,width:w,height:h,zoom:zoomTarget,pan:panTarget,panY:panYTarget};}
 function inputState(){pointer=gestures.pointer;pinch=gestures.pinch;}
 function paintedHit(e){return hitRenderedBubbles(renderedRegions,e,canvas.getBoundingClientRect(),canvas)}
@@ -67,26 +68,26 @@ function beginJoin(result){
   const previous=new Map(field.bodies.map(b=>[b.id,b])),active=new Set(result.specs.map(s=>s.id)),arriving=[],leaving=[],pinned=[];
   let minDistance=Infinity;
   for(const s of result.specs){const old=previous.get(s.id),b=old||bodyPool.get(s.id)||{};
-    const from=old?{x:old.x,y:old.y}:null;Object.assign(b,s,{r:s.targetR,alpha:1,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);
-    if(from&&Math.hypot(from.x-s.tx,from.y-s.ty)<.01){b.x=s.tx;b.y=s.ty;pinned.push(b);}
+    const from=old?{x:old.x,y:old.y}:null;Object.assign(b,s,{r:s.targetR,alpha:1,retired:false,vx:b.vx||0,vy:b.vy||0,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);
+    if(from&&Math.hypot(from.x-s.tx,from.y-s.ty)<.01){b.motionX=s.tx;b.motionY=s.ty;pinned.push(b);}
     else {const d=Math.hypot(s.groupX,s.groupY);if(d>.01)minDistance=Math.min(minDistance,d);arriving.push({body:b,from});}
   }
   const spread=Math.max(3,Math.min(60,(Math.max(w,h)/Math.max(.01,fitZoom)+80)/Math.max(10,minDistance)+2));
-  for(const p of arriving){const b=p.body;p.from||={x:b.tx+b.groupX*(spread-1),y:b.ty+b.groupY*(spread-1)};b.x=p.from.x;b.y=p.from.y;}
+  for(const p of arriving){const b=p.body;p.from||={x:b.tx+b.groupX*(spread-1),y:b.ty+b.groupY*(spread-1)};b.x=p.from.x;b.y=p.from.y;b.motionX=b.x;b.motionY=b.y;}
   for(const b of previous.values())if(!active.has(b.id)){
     let gx=mode==='day'?b.dayX:b.groupX,gy=mode==='day'?b.dayY:b.groupY;if(Math.hypot(gx,gy)<.01){gx=b.x-w/2||1;gy=b.y-h/2;}
     const length=Math.hypot(gx,gy)||1,reach=Math.max(w,h)/Math.max(.01,result.fitZoom)*2;
     leaving.push({body:b,from:{x:b.x,y:b.y},to:{x:b.x+gx/length*reach,y:b.y+gy/length*reach}});b.inPeriod=false;
   }
   field.bodies=[...pinned,...arriving.map(p=>p.body),...leaving.map(p=>p.body)];
-  fitTarget=result.fitZoom;
+  field.settled=false;fitTarget=result.fitZoom;
   if(!arriving.length&&!leaving.length&&Math.abs(fitZoom-fitTarget)<.00001){join=null;return;}
   join={arriving,leaving,progress:0,fromFit:fitZoom,toFit:fitTarget,duration:.42};
 }
 function adoptScreen(){
   // Freeze the present frame without changing the canonical circle geometry.
   // Only swipes need a bitmap-space snapshot; mode changes preserve world space.
-  join=null;slide=pendingNavigation=dragScene=null;swipeOffset=0;returningSwipe=false;
+  releaseBubble();join=null;slide=pendingNavigation=dragScene=null;swipeOffset=0;returningSwipe=false;
 }
 function changeMode(m,{fromPinch=false}={}){
   if(mode===m)return;adoptScreen();mode=m;
@@ -139,12 +140,16 @@ function frame(timestamp){
     // The origin stays fixed. The common camera changes while entire incoming
     // day/week groups approach; shared circles never change their local shape.
     fitZoom=1/((1/join.fromFit)*(1-t)+(1/join.toFit)*t);
-    for(const p of join.arriving){p.body.x=p.from.x+(p.body.tx-p.from.x)*t;p.body.y=p.from.y+(p.body.ty-p.from.y)*t;}
-    for(const p of join.leaving){p.body.x=p.from.x+(p.to.x-p.from.x)*t;p.body.y=p.from.y+(p.to.y-p.from.y)*t;}
+    for(const p of [...join.arriving,...join.leaving]){
+      const b=p.body,target=p.to||{x:b.tx,y:b.ty},x=p.from.x+(target.x-p.from.x)*t,y=p.from.y+(target.y-p.from.y)*t;
+      b.x+=x-(b.motionX??b.x);b.y+=y-(b.motionY??b.y);b.motionX=x;b.motionY=y;
+    }
     if(join.progress===1){field.bodies=field.bodies.filter(b=>b.inPeriod);fitZoom=fitTarget;join=null;}
   }
+  const scale=Math.max(.01,zoom*fitZoom),viewport={left:w/2+(-pan-w/2)/scale,right:w/2+(w-pan-w/2)/scale,top:h/2+(-panY-h/2)/scale,bottom:h/2+(h-panY-h/2)/scale};
+  const physical=!dragScene&&!pendingNavigation&&!slide&&field.stepLive(elapsed,{viewport,pixelScale:scale});
   draw();$('recenter').hidden=zoomTarget<=1.04&&Math.abs(panTarget)<2&&Math.abs(panYTarget)<2;
-  if(returningSwipe||slide||(join&&!dragScene&&!pendingNavigation)||Math.abs(pan-panTarget)>.05||Math.abs(panY-panYTarget)>.05||Math.abs(zoom-zoomTarget)>.001)raf=requestAnimationFrame(frame);
+  if(physical||returningSwipe||slide||(join&&!dragScene&&!pendingNavigation)||Math.abs(pan-panTarget)>.05||Math.abs(panY-panYTarget)>.05||Math.abs(zoom-zoomTarget)>.001)raf=requestAnimationFrame(frame);
 }
 function wake(){if(!raf&&!document.hidden){last=0;raf=requestAnimationFrame(frame)}}
 function resize(){const r=stage.getBoundingClientRect(),oldW=w,oldH=h;if(canvas.width&&Math.abs(w-r.width)<.5&&Math.abs(h-r.height)<.5)return;
@@ -152,19 +157,22 @@ function resize(){const r=stage.getBoundingClientRect(),oldW=w,oldH=h;if(canvas.
   for(const b of field.bodies){b.x*=w/oldW;b.y*=h/oldH}field.resize(w,h);refresh();
 }
 new ResizeObserver(resize).observe(stage);
-document.addEventListener('visibilitychange',()=>{if(document.hidden){if(raf)cancelAnimationFrame(raf);raf=0;gestures.reset();inputState();dragScene=null;swipeOffset=0;panTarget=panYTarget=0;zoomTarget=1;}else wake()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseBubble();if(raf)cancelAnimationFrame(raf);raf=0;gestures.reset();inputState();dragScene=null;swipeOffset=0;panTarget=panYTarget=0;zoomTarget=1;}else wake()});
 function point(e){const r=canvas.getBoundingClientRect();return {x:(e.clientX-r.left)*w/Math.max(1,r.width),y:(e.clientY-r.top)*h/Math.max(1,r.height)}}
 function haptic(){if(prefs.haptics&&navigator.vibrate)navigator.vibrate(8)}function dismissHint(){$('gestureHint').style.opacity='0';}
 canvas.addEventListener('pointerdown',e=>{
   if(e.button>0)return;canvas.setPointerCapture(e.pointerId);
   const result=gestures.down(e.pointerId,point(e),e.timeStamp,{...view(),zoom,pan,panY},paintedHit(e));inputState();
-  if(result?.type==='pinchstart'){if(slide||pendingNavigation){adoptScreen();refresh();}dismissHint();}wake();
+  if(result?.type==='pinchstart'){releaseBubble();if(slide||pendingNavigation){adoptScreen();refresh();}dismissHint();}wake();
 });
 canvas.addEventListener('pointermove',e=>{
   const result=gestures.move(e.pointerId,point(e),e.timeStamp,view());inputState();if(!result)return;
   if(result.type==='swipe'){
     if(!dragScene){const snapshot=screenSnapshot();adoptScreen();dragScene=snapshot;}returningSwipe=false;
     swipeOffset=result.dx;dismissHint();
+  }else if(result.type==='bubble'){
+    if(!bubbleDrag){if(slide||pendingNavigation){adoptScreen();refresh();}const b=field.bodies.find(b=>b.id===result.body.id);if(!b)return;bubbleDrag={body:b,x:b.x,y:b.y,scale:Math.max(.01,zoom*fitZoom)};field.dragId=b.id;dismissHint();}
+    field.dragTarget={x:bubbleDrag.x+result.dx/bubbleDrag.scale,y:bubbleDrag.y+result.dy/bubbleDrag.scale};field.settled=false;
   }else if(result.type==='pan'){pan=panTarget=result.pan;panY=panYTarget=result.panY;dismissHint();}
   else if(result.type==='pinch'){
     if(result.nextMode){changeMode(result.nextMode,{fromPinch:true});haptic();}
@@ -173,7 +181,7 @@ canvas.addEventListener('pointermove',e=>{
   }wake();
 });
 function endPointer(e,cancelled=false){
-  const result=gestures.up(e.pointerId,point(e),e.timeStamp,view(),cancelled);inputState();if(!result)return;
+  const result=gestures.up(e.pointerId,point(e),e.timeStamp,view(),cancelled);inputState();if(!result)return;releaseBubble();
   if(result.type==='navigate')travel(result.direction);
   else if(result.type==='tap'){const body=paintedHit(e)||result.body;if(body)openDetail(body.transaction);}
   else if(result.type==='end'&&dragScene){returningSwipe=true;}

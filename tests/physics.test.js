@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {BubbleField} from '../dist/physics.js';import {bounds,navigate,groupTransactions,sum} from '../dist/periods.js';
+import test from 'node:test';import assert from 'node:assert/strict';import {BubbleField,resolveCollisions} from '../dist/physics.js';import {bounds,navigate,groupTransactions,sum} from '../dist/periods.js';
 test('a grabbed bubble returns to its center after release',()=>{const f=new BubbleField();f.resize(400,400);f.reconcile([{id:'a',tx:200,ty:200,targetR:20,spawnX:200,spawnY:200}]);for(let i=0;i<240;i++)f.step(1/120);f.dragId='a';f.bodies[0].x=340;for(let i=0;i<30;i++)f.step(1/120);assert.equal(f.bodies[0].x,340);f.dragId=null;for(let i=0;i<1000;i++)f.step(1/120);assert.ok(Math.abs(f.bodies[0].x-200)<.01)});
 test('collisions resolve without losing bodies or creating NaN',()=>{const f=new BubbleField();f.resize(500,500);f.reconcile(Array.from({length:25},(_,i)=>({id:String(i),tx:250,ty:250,targetR:12+(i%3)*2})));for(let i=0;i<1000;i++)f.step(1/120);assert.equal(f.bodies.length,25);for(const b of f.bodies)assert.ok([b.x,b.y,b.vx,b.vy,b.r].every(Number.isFinite));for(let i=0;i<f.bodies.length;i++)for(let j=0;j<i;j++)assert.ok(Math.hypot(f.bodies[i].x-f.bodies[j].x,f.bodies[i].y-f.bodies[j].y)>f.bodies[i].r+f.bodies[j].r-2)});
 test('reconciliation retains positions and removes faded bodies',()=>{const f=new BubbleField();f.reconcile([{id:'a',tx:200,ty:200,targetR:20},{id:'b',tx:300,ty:200,targetR:20}]);for(let i=0;i<100;i++)f.step(1/120);const x=f.bodies[0].x;f.reconcile([{id:'a',tx:100,ty:100,targetR:12}]);assert.equal(f.bodies[0].x,x);for(let i=0;i<250;i++)f.step(1/120);assert.equal(f.bodies.length,1)});
@@ -6,3 +6,24 @@ test('calendar periods handle month ends, Monday weeks, year changes',()=>{asser
 test('month groups preserve every expense exactly once',()=>{const tx=[1,2,10,20,31].map(n=>({date:`2026-10-${String(n).padStart(2,'0')}`,amountCents:100}));tx.push({date:'2026-09-30',amountCents:800});const scene=groupTransactions(tx,'2026-10-07','month');assert.equal(sum(scene.visible),500);assert.equal(scene.groups.flatMap(g=>g.items).length,5);assert.equal(scene.groups.reduce((n,g)=>n+sum(g.items),0),500)});
 
 test('drag follows its target gradually and preserves a damped release velocity',()=>{const f=new BubbleField();f.resize(400,400);f.reconcile([{id:'a',tx:200,ty:200,targetR:20}]);for(let i=0;i<240;i++)f.step(1/120);f.dragId='a';f.dragTarget={x:320,y:230};f.step(1/120);assert.ok(f.bodies[0].x>200&&f.bodies[0].x<240);assert.ok(f.bodies[0].vx>0);for(let i=0;i<100;i++)f.step(1/120);assert.ok(Math.abs(f.bodies[0].x-320)<.01);f.dragId=null;f.dragTarget=null;for(let i=0;i<1000;i++)f.step(1/120);assert.ok(Math.abs(f.bodies[0].x-200)<.01);});
+
+test('live physics moves locked layout bubbles, pushes neighbours and restores proportional radii',()=>{
+ const f=new BubbleField();f.bodies=[{id:'a',x:100,y:100,tx:100,ty:100,r:20,targetR:20,alpha:1,layoutLocked:true},{id:'b',x:145,y:100,tx:145,ty:100,r:20,targetR:20,alpha:1,layoutLocked:true}];
+ f.dragId='a';f.dragTarget={x:135,y:100};
+ for(let i=0;i<100;i++)f.stepLive(1/120);
+ assert.ok(f.bodies[1].x>170,'the grabbed circle must push its neighbour');
+ assert.ok(Math.hypot(f.bodies[0].x-f.bodies[1].x,f.bodies[0].y-f.bodies[1].y)>=40-.05);
+ f.dragId=null;f.dragTarget=null;
+ for(let i=0;i<600&&!f.settled;i++)f.stepLive(1/120);
+ assert.ok(f.settled,'the real spring field must sleep after release');
+ for(const b of f.bodies){assert.ok(Math.abs(b.x-b.tx)<.1);assert.equal(b.r,b.targetR);}
+});
+test('live collisions still run on tiny circles at a deeply zoomed month scale',()=>{
+ const f=new BubbleField();f.bodies=[{id:'tiny',x:0,y:0,tx:0,ty:0,r:.01,targetR:.01,alpha:1,collisionGap:.0002},{id:'small',x:.005,y:0,tx:.1,ty:0,r:.03,targetR:.03,alpha:1,collisionGap:.0002}];
+ f.stepLive(1/120,{pixelScale:50});assert.ok(Math.hypot(f.bodies[0].x-f.bodies[1].x,f.bodies[0].y-f.bodies[1].y)>=.04-.0005);
+});
+test('radius tiers resolve giant and tiny contacts across negative and distant grid coordinates',()=>{
+ const bodies=[{id:'giant',x:-100000,y:-300000,r:1000,alpha:1},{id:'tiny',x:-99000,y:-300000,r:2,alpha:1},{id:'far',x:200000,y:900000,r:20,alpha:1}];
+ resolveCollisions(bodies);assert.ok(Math.hypot(bodies[0].x-bodies[1].x,bodies[0].y-bodies[1].y)>=1004-.01);
+ assert.equal(bodies[2].x,200000);assert.equal(bodies[2].y,900000);
+});

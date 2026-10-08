@@ -1,3 +1,9 @@
+## 0.7.2
+
+- Rétablit les ressorts, les collisions et le déplacement des bulles au doigt.
+- Les collisions utilisent des grilles par taille et un nombre borné de passes, sans simulation de tout l’historique.
+- Conserve la géométrie imbriquée, le dézoom centré et les surfaces proportionnelles.
+
 ## 0.7.1 — 2026-10-08
 
 - Nested, immutable expense geometry: selected day coordinates survive the week and month expansion.

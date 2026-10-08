@@ -56,7 +56,7 @@ export class ClusterCatalog {
     const specs=[];
     for(const t of this.items){if(t.date<range.start||t.date>range.end)continue;const p=root.points.get(t.id),day=root.dayCenters?.get(t.date)||{x:0,y:0},wk=root.weekCenters?.get(monday(t.date))||{x:0,y:0};
       const group=mode==='month'?wk:day;
-      specs.push({id:t.id,tx:width/2+(p.x-origin.x)*scale,ty:height/2+(p.y-origin.y)*scale,targetR:p.r*scale,
+      specs.push({id:t.id,tx:width/2+(p.x-origin.x)*scale,ty:height/2+(p.y-origin.y)*scale,targetR:p.r*scale,collisionGap:2*scale,
         groupX:(group.x-origin.x)*scale,groupY:(group.y-origin.y)*scale,dayX:(day.x-origin.x)*scale,dayY:(day.y-origin.y)*scale,
         groupId:t.date,transaction:t,persistent:true,inPeriod:true,layoutLocked:true});
     }

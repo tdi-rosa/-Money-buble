@@ -13,6 +13,31 @@ export class BubbleField {
     this.settled=this.transition>=.38&&!this.dragId&&this.bodies.every(b=>b.layoutLocked&&!b.retired);
     if(this.settled)for(const b of this.bodies){b.x=b.tx;b.y=b.ty;b.r=b.targetR;b.alpha=b.targetAlpha;b.vx=b.vy=0;}
   }
+  // Live springs operate in world space. The camera never changes physical radii.
+  stepLive(dt,{viewport=null,pixelScale=1}={}){
+    const steps=Math.max(1,Math.ceil(Math.min(.05,Math.max(0,dt))*60)),delta=Math.min(.05,Math.max(0,dt))/steps;
+    const tolerance=.025/Math.max(.01,pixelScale);let contactError=0;
+    for(let step=0;step<steps;step++){
+      for(const b of this.bodies){
+        b.vx=Number.isFinite(b.vx)?b.vx:0;b.vy=Number.isFinite(b.vy)?b.vy:0;
+        b.r=b.targetR;b.alpha=1;
+        if(b.id===this.dragId&&this.dragTarget){
+          const follow=1-Math.exp(-28*delta),oldX=b.x,oldY=b.y;
+          b.x+=(this.dragTarget.x-b.x)*follow;b.y+=(this.dragTarget.y-b.y)*follow;
+          b.vx=(b.x-oldX)/Math.max(delta,.001)*.25;b.vy=(b.y-oldY)/Math.max(delta,.001)*.25;
+        }else{
+          const x=b.motionX??b.tx,y=b.motionY??b.ty,damping=Math.exp(-18*delta);
+          b.vx=(b.vx+(x-b.x)*90*delta)*damping;b.vy=(b.vy+(y-b.y)*90*delta)*damping;
+          b.x+=b.vx*delta;b.y+=b.vy*delta;
+        }
+      }
+      const local=viewport?this.bodies.filter(b=>b.x+b.r>=viewport.left&&b.x-b.r<=viewport.right&&b.y+b.r>=viewport.top&&b.y-b.r<=viewport.bottom):this.bodies;
+      contactError=resolveLiveContacts(local,{tolerance,dragId:this.dragId});
+    }
+    this.settled=!this.dragId&&contactError<=tolerance&&this.bodies.every(b=>
+      Math.hypot(b.x-(b.motionX??b.tx),b.y-(b.motionY??b.ty))<.08/Math.max(.01,pixelScale)&&Math.hypot(b.vx,b.vy)<.15/Math.max(.01,pixelScale));
+    return !this.settled;
+  }
   hit(x,y,touchRadius=22){
     const visible=this.bodies.filter(b=>!b.retired&&b.inPeriod!==false&&b.alpha>.08);
     const distance=b=>Math.hypot(x-b.x,y-b.y);
@@ -23,25 +48,70 @@ export class BubbleField {
   }
 }
 
-// Rebuild the broad phase after each projection: corrections can create new neighbours.
-export function resolveCollisions(bodies,{iterations=64,tolerance=.001,dragId=null}={}){
-  const visible=bodies.filter(b=>!b.retired&&b.inPeriod!==false&&b.alpha>=.1);
-  if(visible.length<2)return;
-  const cell=Math.max(12,...visible.map(b=>b.r*2+8));
+// Radius tiers prevent one large expense from putting every small circle in
+// the same grid cell. Each pair is considered once, only in neighbouring cells.
+export function resolveCollisions(bodies,{iterations=64,tolerance=.001,dragId=null,includeOutgoing=false,impulses=false}={}){
+  const visible=bodies.filter(b=>!b.retired&&(includeOutgoing||b.inPeriod!==false)&&b.alpha>=.1);
+  if(visible.length<2)return 0;
+  const sorted=visible.map(b=>({b,level:Math.ceil(Math.log2(Math.max(4,b.r*2+(b.collisionGap??2))))})).sort((a,b)=>b.level-a.level);
+  let residual=0;
   for(let iteration=0;iteration<iterations;iteration++){
-    const grid=new Map();let worst=0;
-    for(const b of visible){
-      const gx=Math.floor(b.x/cell),gy=Math.floor(b.y/cell);
-      for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const other of grid.get((gx+dx)+(gy+dy)*65536)||[]){
-        const ax=b.x-other.x,ay=b.y-other.y,distance=Math.hypot(ax,ay),gap=Math.min(b.collisionGap??2,other.collisionGap??2);
-        const overlap=b.r+other.r+gap-distance;if(overlap<=tolerance)continue;worst=Math.max(worst,overlap);
-        let nx,ny;if(distance>.00001){nx=ax/distance;ny=ay/distance;}else{const seed=(String(b.id)+String(other.id)).split('').reduce((n,c)=>n+c.charCodeAt(0),0)*2.3999632297;nx=Math.cos(seed);ny=Math.sin(seed);}
-        const invA=b.id===dragId?0:1/Math.max(1,b.r*b.r),invB=other.id===dragId?0:1/Math.max(1,other.r*other.r),total=invA+invB;
-        if(!total)continue;const correction=(overlap+tolerance)/total;
-        b.x+=nx*correction*invA;b.y+=ny*correction*invA;other.x-=nx*correction*invB;other.y-=ny*correction*invB;
+    const levels=new Map();let worst=0;
+    for(const {b,level} of sorted){
+      for(const [tier,grid] of levels){
+        const cell=2**tier,gx=Math.floor(b.x/cell),gy=Math.floor(b.y/cell);
+        for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const other of grid.get((gx+dx)+':'+(gy+dy))||[]){
+          const ax=b.x-other.x,ay=b.y-other.y,minimum=b.r+other.r+Math.min(b.collisionGap??2,other.collisionGap??2);
+          if(Math.abs(ax)>=minimum||Math.abs(ay)>=minimum)continue;
+          const distance=Math.hypot(ax,ay),overlap=minimum-distance;if(overlap<=tolerance)continue;worst=Math.max(worst,overlap);
+          let nx,ny;if(distance>.00001){nx=ax/distance;ny=ay/distance;}else{const seed=(String(b.id)+String(other.id)).split('').reduce((n,c)=>n+c.charCodeAt(0),0)*2.3999632297;nx=Math.cos(seed);ny=Math.sin(seed);}
+          const invA=b.id===dragId?0:1/Math.max(1,b.r*b.r),invB=other.id===dragId?0:1/Math.max(1,other.r*other.r),total=invA+invB;
+          if(!total)continue;const correction=(overlap+tolerance)/total;
+          b.x+=nx*correction*invA;b.y+=ny*correction*invA;other.x-=nx*correction*invB;other.y-=ny*correction*invB;
+          if(impulses){const closing=((b.vx||0)-(other.vx||0))*nx+((b.vy||0)-(other.vy||0))*ny;
+            if(closing<0){const impulse=-1.08*closing/total;b.vx=(b.vx||0)+nx*impulse*invA;b.vy=(b.vy||0)+ny*impulse*invA;other.vx=(other.vx||0)-nx*impulse*invB;other.vy=(other.vy||0)-ny*impulse*invB;}
+          }
+        }
       }
-      const key=Math.floor(b.x/cell)+Math.floor(b.y/cell)*65536;if(!grid.has(key))grid.set(key,[]);grid.get(key).push(b);
+      if(!levels.has(level))levels.set(level,new Map());const grid=levels.get(level),cell=2**level,key=Math.floor(b.x/cell)+':'+Math.floor(b.y/cell);
+      if(!grid.has(key))grid.set(key,[]);grid.get(key).push(b);
     }
-    if(worst<=tolerance)break;
+    residual=worst;if(worst<=tolerance)break;
   }
+  return residual;
+}
+
+// Resting circles remain collision obstacles, but only disturbed circles query
+// neighbours. A contact wakes its neighbour in the same pass.
+function resolveLiveContacts(bodies,{tolerance,dragId}){
+  const active=new Set(bodies.filter(b=>b.id===dragId||Math.hypot(b.vx,b.vy)>tolerance||Math.hypot(b.x-(b.motionX??b.tx),b.y-(b.motionY??b.ty))>tolerance));
+  if(!active.size)return 0;let residual=0;
+  for(let iteration=0;iteration<3;iteration++){
+    const tiers=new Map();
+    for(const b of bodies){const level=Math.ceil(Math.log2(Math.max(4,b.r*2+(b.collisionGap??2)))),cell=2**level;
+      if(!tiers.has(level))tiers.set(level,new Map());const grid=tiers.get(level),key=Math.floor(b.x/cell)+':'+Math.floor(b.y/cell);
+      if(!grid.has(key))grid.set(key,[]);grid.get(key).push(b);
+    }
+    const queue=[...active],seen=new Set();let worst=0;
+    for(let i=0;i<queue.length;i++){
+      const b=queue[i];
+      for(const [level,grid] of tiers){
+        const cell=2**level,reach=b.r+cell/2+(b.collisionGap??2),minX=Math.floor((b.x-reach)/cell),maxX=Math.floor((b.x+reach)/cell),minY=Math.floor((b.y-reach)/cell),maxY=Math.floor((b.y+reach)/cell);
+        const buckets=[];
+        if((maxX-minX+1)*(maxY-minY+1)>grid.size*2){for(const [key,bucket] of grid){const [x,y]=key.split(':').map(Number);if(x>=minX&&x<=maxX&&y>=minY&&y<=maxY)buckets.push(bucket);}}
+        else for(let x=minX;x<=maxX;x++)for(let y=minY;y<=maxY;y++){const bucket=grid.get(x+':'+y);if(bucket)buckets.push(bucket);}
+        for(const bucket of buckets)for(const other of bucket){
+          if(b===other)continue;const pair=String(b.id)<String(other.id)?JSON.stringify([b.id,other.id]):JSON.stringify([other.id,b.id]);if(seen.has(pair))continue;seen.add(pair);
+          const ax=b.x-other.x,ay=b.y-other.y,minimum=b.r+other.r+Math.min(b.collisionGap??2,other.collisionGap??2);
+          if(Math.abs(ax)>=minimum||Math.abs(ay)>=minimum)continue;const distance=Math.hypot(ax,ay),overlap=minimum-distance;if(overlap<=tolerance)continue;
+          worst=Math.max(worst,overlap);const nx=distance>.00001?ax/distance:1,ny=distance>.00001?ay/distance:0,invA=b.id===dragId?0:1/Math.max(1,b.r*b.r),invB=other.id===dragId?0:1/Math.max(1,other.r*other.r),total=invA+invB;if(!total)continue;
+          const correction=(overlap+tolerance)/total;b.x+=nx*correction*invA;b.y+=ny*correction*invA;other.x-=nx*correction*invB;other.y-=ny*correction*invB;
+          const closing=(b.vx-other.vx)*nx+(b.vy-other.vy)*ny;if(closing<0){const impulse=-1.08*closing/total;b.vx+=nx*impulse*invA;b.vy+=ny*impulse*invA;other.vx-=nx*impulse*invB;other.vy-=ny*impulse*invB;}
+          if(!active.has(other)){active.add(other);queue.push(other);}
+        }
+      }
+    }
+    residual=worst;if(worst<=tolerance)break;
+  }
+  return residual;
 }

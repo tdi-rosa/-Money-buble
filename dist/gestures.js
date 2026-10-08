@@ -26,8 +26,9 @@ export class GestureSession {
     const g=this.pointer;if(!g||g.id!==id)return;
     const previous=g.samples[g.samples.length-1];if(time-previous.time>100)g.samples.push({x:g.x,y:g.y,time:time-50});g.x=p.x;g.y=p.y;g.samples.push({...p,time});while(g.samples.length>1&&g.samples[0].time<time-90)g.samples.shift();
     const dx=p.x-g.startX,dy=p.y-g.startY;
-    if(!g.moved&&Math.hypot(dx,dy)>6){g.moved=true;g.axis=g.exploring?'free':Math.abs(dx)>Math.abs(dy)*1.1?'horizontal':'vertical';}
+    if(!g.moved&&Math.hypot(dx,dy)>6){g.moved=true;g.axis=g.body&&(time-g.started>=250||Math.abs(dy)>Math.abs(dx)*1.1)?'bubble':g.exploring?'free':Math.abs(dx)>Math.abs(dy)*1.1?'horizontal':'vertical';}
     if(!g.moved)return;
+    if(g.axis==='bubble')return {type:'bubble',body:g.body,dx,dy};
     if(g.axis==='free')return {type:'pan',pan:g.startPan+dx,panY:g.startPanY+dy};
     if(g.axis==='horizontal')return {type:'swipe',dx};
   }
@@ -40,7 +41,7 @@ export class GestureSession {
     }
     const g=this.pointer;if(!g||g.id!==id)return;this.pointer=null;
     const first=g.samples[0],velocity=(p.x-first.x)/Math.max(1,time-first.time);
-    const action=g.axis==='free'||g.axis==='vertical'?'none':gestureAction({dx:p.x-g.startX,dy:p.y-g.startY,moved:g.moved,mode:view.mode,body:g.body,cancelled,duration:time-g.started,velocity});
+    const action=g.axis==='bubble'||g.axis==='free'||g.axis==='vertical'?'none':gestureAction({dx:p.x-g.startX,dy:p.y-g.startY,moved:g.moved,mode:view.mode,body:g.body,cancelled,duration:time-g.started,velocity});
     return {type:action==='next'||action==='previous'?'navigate':action==='detail'?'tap':'end',direction:action==='next'?1:-1,body:g.body,exploring:g.exploring};
   }
 }

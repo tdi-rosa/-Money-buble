@@ -20,3 +20,10 @@ test('tap is always an expense tap and zoom pans follow both axes in CSS pixels'
  const g=new GestureSession();for(const mode of ['day','week','month']){const body={id:mode};g.down(1,{x:180,y:210},0,view(mode),body);assert.deepEqual(g.up(1,{x:182,y:208},80,view(mode)),{type:'tap',direction:-1,body,exploring:false});}
  g.down(1,{x:100,y:100},0,view('day',3));assert.deepEqual(g.move(1,{x:150,y:70},20,view('day',3)),{type:'pan',pan:50,panY:-30});
 });
+
+test('vertical bubble drags and held horizontal drags keep physics distinct from quick swipes',()=>{
+ const g=new GestureSession(),body={id:'expense'};g.down(1,{x:180,y:210},0,view(),body);
+ assert.equal(g.move(1,{x:182,y:235},25,view()).type,'bubble');assert.equal(g.up(1,{x:220,y:240},40,view()).type,'end');
+ g.down(1,{x:180,y:210},100,view(),body);assert.equal(g.move(1,{x:210,y:210},400,view()).type,'bubble');assert.equal(g.up(1,{x:230,y:210},440,view()).type,'end');
+ g.down(1,{x:180,y:210},450,view(),body);assert.equal(g.move(1,{x:145,y:211},470,view()).type,'swipe');assert.equal(g.up(1,{x:145,y:211},485,view()).type,'navigate');
+});
