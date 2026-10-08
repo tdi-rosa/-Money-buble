@@ -1,3 +1,11 @@
+## 0.7.0 — 2026-10-08
+
+- One proportional expense cluster for the day, week or month. Other days join the same cluster when zooming out.
+- Collision-safe transition keyframes run in the worker; canvas rendering performs no physics simulation.
+- Interruptible swipes with adjacent-period previews, direct touch tracking, recent-velocity flicks and continuous reversible pinch gestures.
+- Expense details open at every scale, with hit regions captured from the painted circles.
+- Versioned transparent black three-circle icons and fresh manifest retrieval for installed apps.
+
 # Versions
 
 ## 0.4.0

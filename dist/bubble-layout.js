@@ -1,6 +1,4 @@
-import {BubbleField,resolveCollisions} from './physics.js';
-import {monday,bounds} from './periods.js';
-import {shiftDate} from './core.js';
+import {bounds} from './periods.js';
 export const MIN_RADIUS=22;
 // Convert the rendered canvas to simulation coordinates, including its current transform.
 export function scenePoint({clientX,clientY},rect,{width,height,zoom=1,pan=0,panY=0}){
@@ -14,71 +12,57 @@ export function bubbleRadii(values,{budget=18000,maxRadius=120,areaScale}={}){
   const k=areaScale??Math.min(total?budget/total:0,largest?maxRadius**2/largest:0);
   return values.map(v=>Math.sqrt(Math.max(0,v)*k));
 }
-export function gestureAction({dx,dy,moved,mode,body,group,cancelled,duration=Infinity}){
+export function gestureAction({dx,dy,moved,mode,body,group,cancelled,duration=Infinity,velocity=0}){
   if(cancelled)return 'none';
-  if((Math.abs(dx)>36||(Math.abs(dx)>18&&Math.abs(dx)/Math.max(1,duration)>.35))&&Math.abs(dx)>Math.abs(dy)*1.2)return dx<0?'next':'previous';
+  if((Math.abs(dx)>36||(Math.abs(dx)>18&&(Math.abs(dx)/Math.max(1,duration)>.35||Math.sign(velocity)===Math.sign(dx)&&Math.abs(velocity)>.35)))&&Math.abs(dx)>Math.abs(dy)*1.2)return dx<0?'next':'previous';
   if(moved)return 'none';
-  if(mode!=='day'&&group)return 'drill';
-  return body?'detail':'none';
+    return body?'detail':'none';
 }
 
-// Daily geometry is calculated once in world units, independent of the camera.
-const dayCache=new Map(),CELL=400;
-function dayGeometry(items,areaScale){
-  const ordered=[...items].sort((a,b)=>String(a.id).localeCompare(String(b.id)));
-  const key=JSON.stringify([areaScale,ordered.map(t=>[t.id,t.amountCents])]);
-  if(dayCache.has(key))return dayCache.get(key);
-  const radii=bubbleRadii(ordered.map(t=>t.amountCents),{areaScale});
-  const field=new BubbleField(),size=Math.max(CELL,Math.ceil(Math.sqrt(ordered.length)*60));field.resize(size,size);
-  field.reconcile(ordered.map((t,i)=>{const a=i*2.3999632297,o=Math.sqrt(i+1)*8;return {id:t.id,tx:size/2+Math.cos(a)*o,ty:size/2+Math.sin(a)*o,targetR:radii[i]}}));
-  for(let i=0;i<300;i++)field.step(1/60);
-  // Pack final radii exactly before freezing the geometry for every camera view.
-  for(const b of field.bodies){b.r=b.targetR;b.collisionGap=4;}
-  resolveCollisions(field.bodies,{iterations:512,tolerance:.0001});
-  const geometry=new Map(field.bodies.map(b=>[b.id,{x:b.x-size/2,y:b.y-size/2,r:b.targetR}]));
-  if(dayCache.size>120)dayCache.clear();dayCache.set(key,geometry);return geometry;
+// Pack only the active period. No simulation of the entire bank history and no
+// hundreds of physics steps before the worker can answer a gesture.
+const clusterCache=new Map();
+export function packCluster(items){
+  const ordered=[...items].sort((a,b)=>b.amountCents-a.amountCents||String(a.id).localeCompare(String(b.id)));
+  const key=JSON.stringify(ordered.map(t=>[t.id,t.amountCents]));
+  if(clusterCache.has(key))return clusterCache.get(key);
+  const radii=bubbleRadii(ordered.map(t=>t.amountCents),{areaScale:1});
+  const placed=[],points=new Map();
+  for(let i=0;i<ordered.length;i++){
+    const r=radii[i],phase=i*2.3999632297;let best={x:0,y:0,distance:Infinity};
+    // Along each ray, merge the intervals blocked by existing circles. This
+    // finds the nearest free point without a slow pixel-by-pixel spiral search.
+    for(let ray=0;ray<32;ray++){
+      const angle=phase+ray*Math.PI/16,c=Math.cos(angle),s=Math.sin(angle),intervals=[];
+      for(const b of placed){const projection=b.x*c+b.y*s,perpendicular=b.x*b.x+b.y*b.y-projection*projection,gap=r+b.r+4;
+        if(perpendicular>=gap*gap)continue;
+        const half=Math.sqrt(Math.max(0,gap*gap-perpendicular)),end=projection+half;
+        if(end>=0)intervals.push([Math.max(0,projection-half),end]);
+      }
+      intervals.sort((a,b)=>a[0]-b[0]);let distance=0;
+      for(const [start,end] of intervals){if(start>distance)break;distance=Math.max(distance,end+.0001);}
+      if(distance<best.distance)best={x:c*distance,y:s*distance,distance};
+    }
+    const b={x:best.x,y:best.y,r};points.set(ordered[i].id,b);placed.push(b);
+  }
+  if(clusterCache.size>=36)clusterCache.delete(clusterCache.keys().next().value);
+  clusterCache.set(key,points);return points;
 }
 export function periodCamera(groups,{mode='day',date=groups[0]?.start,width=400,height=400}={}){
-  const range=bounds(date,mode),days=[];
-  for(let d=range.start;d<=range.end;d=shiftDate(d,1))days.push(d);
-  const byDate=new Map(days.map(d=>[d,[]]));
-  for(const g of groups)for(const t of g.items){if(!byDate.has(t.date))byDate.set(t.date,[]);byDate.get(t.date).push(t);}
-  // Geometry is stable; framing uses only the selected period, never unrelated history.
-  const geometry=new Map([...byDate].map(([d,items])=>[d,dayGeometry(items,1)]));
-  const boxes=new Map([...geometry].map(([d,points])=>{
-    const all=[...points.values()];
-    const left=all.length?Math.min(...all.map(b=>b.x-b.r)):-40,right=all.length?Math.max(...all.map(b=>b.x+b.r)):40;
-    const top=all.length?Math.min(...all.map(b=>b.y-b.r)):-40,bottom=all.length?Math.max(...all.map(b=>b.y+b.r)):40;
-    return [d,{cx:(left+right)/2,cy:(top+bottom)/2,width:right-left,height:bottom-top}];
-  }));
-  const columns=mode==='day'?1:mode==='week'?3:7;
-  const firstColumn=mode==='month'?(new Date(range.start+'T12:00:00Z').getUTCDay()+6)%7:0;
-  const rows=mode==='day'?1:Math.ceil((firstColumn+days.length)/columns);
-  const pad=mode==='day'?24:8,cellW=(width-pad*2)/columns;
-  const availableH=Math.max(100,height-32),cellH=availableH/rows;
-  const top=16;
-  const labelSpace=mode==='day'?0:35;
-  const largestW=Math.max(1,...days.map(d=>boxes.get(d).width)),largestH=Math.max(1,...days.map(d=>boxes.get(d).height));
-  const scale=Math.min((cellW-(mode==='day'?0:10))/largestW,Math.max(10,cellH-labelSpace-(mode==='day'?16:12))/largestH);
-  const centers=new Map(),labels=[];
-  days.forEach((d,i)=>{
-    const n=i+firstColumn,col=n%columns,row=Math.floor(n/columns);
-    const x=pad+cellW*(col+.5),y=top+cellH*row+(cellH-labelSpace)/2+(mode==='day'?0:17);
-    centers.set(d,{x,y});
-    labels.push({id:d,start:d,end:d,inPeriod:true,items:byDate.get(d),x,y,labelY:top+cellH*(row+1)-9,totalY:top+cellH*row+7,maxR:cellW/2,
-      hitRect:{left:pad+cellW*col,top:top+cellH*row,right:pad+cellW*(col+1),bottom:top+cellH*(row+1)}});
-  });
-  // Other days remain in memory and move beyond the viewport without fading.
-  for(const d of byDate.keys())if(!centers.has(d))centers.set(d,{x:d<range.start?-width:width*2,y:height/2});
-  return {scale,geometry,centers,boxes,labels,range,width,height};
+  const range=bounds(date,mode),items=groups.flatMap(g=>g.items).filter(t=>t.date>=range.start&&t.date<=range.end);
+  const geometry=packCluster(items),all=[...geometry.values()];
+  const left=all.length?Math.min(...all.map(b=>b.x-b.r)):-40,right=all.length?Math.max(...all.map(b=>b.x+b.r)):40;
+  const top=all.length?Math.min(...all.map(b=>b.y-b.r)):-40,bottom=all.length?Math.max(...all.map(b=>b.y+b.r)):40;
+  const box={cx:(left+right)/2,cy:(top+bottom)/2,width:right-left,height:bottom-top};
+  const scale=Math.min(Math.max(1,width-40)/Math.max(1,box.width),Math.max(1,height-48)/Math.max(1,box.height));
+  return {scale,geometry,box,labels:[],range,width,height};
 }
 export function expenseBubbles(groups,color,options,camera=periodCamera(groups,options)){
   return groups.flatMap(g=>g.items.map(t=>{
-    const local=camera.geometry.get(t.date).get(t.id),center=camera.centers.get(t.date),box=camera.boxes.get(t.date);
     const inPeriod=t.date>=camera.range.start&&t.date<=camera.range.end;
-    const targetR=local.r*camera.scale;
-    const tx=inPeriod?center.x+(local.x-box.cx)*camera.scale:(t.date<camera.range.start?-targetR-32:camera.width+targetR+32);
-    const ty=inPeriod?center.y+(local.y-box.cy)*camera.scale:camera.height/2;
+    const local=camera.geometry.get(t.id),targetR=Math.sqrt(Math.max(0,t.amountCents))*camera.scale;
+    const tx=inPeriod?camera.width/2+(local.x-camera.box.cx)*camera.scale:(t.date<camera.range.start?-targetR-40:camera.width+targetR+40);
+    const ty=inPeriod?camera.height/2+(local.y-camera.box.cy)*camera.scale:camera.height/2;
     return {id:t.id,tx,ty,spawnX:tx,spawnY:ty,targetR,groupId:t.date,transaction:t,color:color(t),collisionGap:4*camera.scale,layoutLocked:true,persistent:true,inPeriod};
   }));
 }

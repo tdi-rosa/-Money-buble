@@ -23,9 +23,9 @@ test('areas are strictly proportional without a visual floor or saturation',()=>
  for(let i=1;i<r.length;i++)assert.ok(Math.abs(r[i]**2/r[0]**2-values[i])<1e-7);
  assert.ok(Math.abs(r[3]**2/r[2]**2-3.9)<1e-10);
 });
-test('swiping on a bubble navigates, overview taps open the selected day, cancel does nothing',()=>{
+test('swiping on a bubble navigates, taps open expenses at every scale, cancel does nothing',()=>{
  assert.equal(gestureAction({dx:-100,dy:5,moved:true,mode:'day',body:{}}),'next');
- for(const mode of ['week','month'])assert.equal(gestureAction({dx:0,dy:0,moved:false,mode,body:{},group:{}}),'drill');
+ for(const mode of ['week','month'])assert.equal(gestureAction({dx:0,dy:0,moved:false,mode,body:{},group:{}}),'detail');
  assert.equal(gestureAction({dx:0,dy:0,moved:false,mode:'day',body:{}}),'detail');
  assert.equal(gestureAction({dx:100,dy:0,cancelled:true}),'none');
 });
@@ -46,18 +46,14 @@ test('all periods retain every expense as its own clickable bubble, even beyond 
  assert.ok(month.groups.some(g=>g.start==='2026-10-05'&&g.end==='2026-10-11'));
 });
 
-test('overview bubbles are exactly a uniform zoom of each daily cluster',()=>{
- const items=Array.from({length:12},(_,i)=>({id:'zoom-'+i,date:i<6?'2026-10-07':'2026-10-08',amountCents:(i+1)**3*50,paymentKind:'card'}));
- const make=(mode)=>expenseBubbles([{items}],paymentColor,{mode,date:'2026-10-08',width:360,height:420});
- const day=make('day').filter(b=>b.inPeriod);
- for(const mode of ['week','month']){
-  const view=make(mode),shared=day.map(b=>view.find(v=>v.id===b.id)),scale=shared[0].targetR/day[0].targetR;
-  assert.ok(scale<1);
-  for(let i=0;i<day.length;i++){
-   assert.ok(Math.abs(shared[i].targetR/day[i].targetR-scale)<1e-9);
-   assert.ok(Math.abs((shared[i].tx-shared[0].tx)-(day[i].tx-day[0].tx)*scale)<1e-8);
-   assert.ok(Math.abs((shared[i].ty-shared[0].ty)-(day[i].ty-day[0].ty)*scale)<1e-8);
-  }
+test('week and month collect all expenses into one framed proportional cluster',()=>{
+ const items=Array.from({length:28},(_,i)=>({id:'cluster-'+i,date:'2026-10-'+String(i+1).padStart(2,'0'),amountCents:100+i*250}));
+ for(const mode of ['day','week','month']){
+  const camera=periodCamera([{items}],{mode,date:'2026-10-08',width:360,height:420});
+  const bubbles=expenseBubbles([{items}],paymentColor,{},camera).filter(b=>b.inPeriod);
+  assert.equal(camera.labels.length,0);assert.equal(bubbles.length,mode==='day'?1:mode==='week'?7:28);
+  for(const b of bubbles){assert.ok(b.tx-b.targetR>=19.99&&b.tx+b.targetR<=340.01);assert.ok(b.ty-b.targetR>=23.99&&b.ty+b.targetR<=396.01);}
+  for(const b of bubbles)assert.ok(Math.abs(b.targetR**2/bubbles[0].targetR**2-b.transaction.amountCents/bubbles[0].transaction.amountCents)<1e-9);
  }
 });
 
@@ -69,16 +65,8 @@ test('daily and zoomed clusters have no overlapping circles, including every tra
  const field=new BubbleField();field.resize(360,420);
  for(const mode of ['day','week','month','day']){
   field.reconcile(specs(mode));
-  for(let frame=0;frame<180;frame++){field.step(1/60);separated(field.bodies.filter(b=>!b.retired&&b.inPeriod&&b.alpha>.1));}
+  for(let frame=0;frame<180;frame++){field.step(1/60);separated(field.bodies.filter(b=>!b.retired&&b.inPeriod&&b.alpha>.1&&b.x+b.r>=0&&b.x-b.r<=360&&b.y+b.r>=0&&b.y-b.r<=420));}
  }
-});
-
-test('week fits a compact three-column calendar grid',()=>{
- const camera=periodCamera(groupTransactions([],'2026-10-08','week').groups,{mode:'week',date:'2026-10-08',width:360,height:420});
- assert.equal(camera.labels.length,7);
- assert.equal(new Set(camera.labels.map(g=>g.x)).size,3);
- assert.equal(new Set(camera.labels.map(g=>g.y)).size,3);
- assert.ok(camera.labels.every(g=>g.x>0&&g.x<360&&g.y>0&&g.y<420));
 });
 
 test('zoom preserves every body, its opacity and proportional area across dates',()=>{
@@ -114,7 +102,7 @@ test('period framing excludes surrounding history while retaining it outside the
  for(const mode of ['day','week','month']){
   const camera=periodCamera([{items}],{mode,date:'2026-10-08',width:360,height:420});
   const specs=expenseBubbles([{items}],paymentColor,{},camera),range=bounds('2026-10-08',mode);
-  assert.equal(camera.labels.length,mode==='day'?1:mode==='week'?7:31);
+  assert.equal(camera.labels.length,0);
   for(const b of specs){
    assert.equal(b.inPeriod,b.transaction.date>=range.start&&b.transaction.date<=range.end);
    if(!b.inPeriod)assert.ok(b.tx+b.targetR<0||b.tx-b.targetR>360);
@@ -148,15 +136,6 @@ test('every part of a painted circle is clickable at mobile DPR, after scrolling
   }
  }
 });
-test('calendar totals sit above every cluster and dates below it',()=>{
- const items=[{id:'label',date:'2026-10-08',amountCents:3900}];
- for(const mode of ['week','month']){
-  const camera=periodCamera([{items}],{mode,date:'2026-10-08',width:360,height:420});
-  const b=expenseBubbles([{items}],paymentColor,{},camera)[0],label=camera.labels.find(g=>g.id===b.groupId);
-  assert.ok(label.totalY<b.ty-b.targetR);assert.ok(label.labelY>b.ty+b.targetR);
- }
-});
-
 import {pinchMode} from '../dist/bubble-layout.js';
 test('short quick swipes navigate while slow taps and vertical scrolls do not',()=>{
  assert.equal(gestureAction({dx:-24,dy:3,moved:true,duration:50,mode:'day'}),'next');
