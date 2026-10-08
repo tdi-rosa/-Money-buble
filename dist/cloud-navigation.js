@@ -9,7 +9,7 @@ export class CloudHistory {
   }
   restore(mode,date,specs){
     const saved=this.clouds.get(this.key(mode,date));
-    return specs.map(s=>({...s,...saved?.get(s.id),x:saved?.get(s.id)?.x??s.tx,y:saved?.get(s.id)?.y??s.ty,r:s.targetR,alpha:1}));
+    return specs.map(s=>({...s,...saved?.get(s.id),x:saved?.get(s.id)?.x??s.tx,y:saved?.get(s.id)?.y??s.ty,r:s.targetR,alpha:1,vx:saved?.get(s.id)?.vx??0,vy:saved?.get(s.id)?.vy??0,arriving:saved?.get(s.id)?.arriving??false}));
   }
 }
 export function cloudCenter(bodies,width,height){
