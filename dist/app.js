@@ -180,8 +180,31 @@ function paintBodies(bodies,{offset=0,screen=false}={}){
     }
   }ctx.restore();
 }
+let dotPattern=null;
+function paintDotGrid(){
+  if(!dotPattern){
+    const tile=document.createElement('canvas');tile.width=tile.height=32;
+    const ink=tile.getContext('2d');ink.fillStyle='#b9bdc7';ink.beginPath();ink.arc(16,16,1.15,0,Math.PI*2);ink.fill();
+    dotPattern=ctx.createPattern(tile,'repeat');
+  }
+  const scale=Math.max(.01,zoom*fitZoom),base=8;
+  // One world-anchored ruler for every period. Fade intermediate points when
+  // zooming out instead of letting a dense grid compete with the expenses.
+  const level=Math.max(0,Math.log2(16/(base*scale))),whole=Math.floor(level),fraction=level-whole;
+  const fine=base*2**whole*scale,blend=fraction*fraction*(3-2*fraction);
+  const originX=w/2-cameraX*scale+pan,originY=h/2-cameraY*scale+panY;
+  ctx.save();ctx.fillStyle=dotPattern;
+  for(const [spacing,opacity] of [[fine,1-blend],[fine*2,blend]]){
+    if(opacity<.001)continue;
+    // Cached vector tile: no per-dot drawing or new canvas allocation per frame.
+    dotPattern.setTransform(new DOMMatrix().translate(originX-spacing/2,originY-spacing/2).scale(spacing/32));
+    ctx.globalAlpha=.65*opacity;ctx.fillRect(0,0,w,h);
+  }
+  ctx.restore();
+}
 function draw(){
   renderedRegions=[];ctx.clearRect(0,0,w,h);
+  paintDotGrid();
   // A single camera paints all live bodies. Both periods share real contacts.
   paintBodies(field.bodies);$('empty').style.transform='';
 }

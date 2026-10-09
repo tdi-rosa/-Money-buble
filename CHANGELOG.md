@@ -1,3 +1,8 @@
+## 0.8.3
+
+- Ajoute une trame discrète de points gris derrière les bulles, liée à la même échelle physique et à la même caméra dans les trois modes.
+- La trame accompagne le zoom et le déplacement ; sa densité diminue progressivement en dézoomant, avec une tuile réutilisée pour préserver la fluidité.
+
 ## 0.8.2
 
 - Recadre dès le regroupement sur le cœur de l’amas : les bulles encore éloignées ont une influence limitée sur le cadrage, sans attendre leur arrivée.
