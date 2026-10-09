@@ -1,5 +1,7 @@
 ## 0.8.4
 
+- Garde un rayon visuel constant pour les points afin d’éviter le scintillement et les bandes de moiré des points raster trop fins.
+
 - Conserve une seule trame à espacement physique fixe : supprime les changements de densité qui provoquaient des sursauts au zoom et au recadrage.
 - Préserve la phase des points lorsque le swipe normalise le monde physique ; aucun saut du fond à la fin du glissement.
 - La trame partage exactement la caméra des bulles et réduit seulement son contraste progressivement quand les points deviennent trop serrés.

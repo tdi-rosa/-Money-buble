@@ -181,18 +181,20 @@ function paintBodies(bodies,{offset=0,screen=false}={}){
     }
   }ctx.restore();
 }
-let dotPattern=null,dotAnchor={x:0,y:0};
+let dotPattern=null,dotTile=null,dotSpacing=0,dotAnchor={x:0,y:0};
 function paintDotGrid(){
-  if(!dotPattern){
-    const tile=document.createElement('canvas');tile.width=tile.height=32;
-    const ink=tile.getContext('2d');ink.fillStyle='#b9bdc7';ink.beginPath();ink.arc(16,16,1.15,0,Math.PI*2);ink.fill();
-    dotPattern=ctx.createPattern(tile,'repeat');
-  }
   const grid=dotGridView({width:w,height:h,x:cameraX,y:cameraY,scale:Math.max(.01,zoom*fitZoom),panX:pan,panY,anchorX:dotAnchor.x,anchorY:dotAnchor.y});
   if(grid.opacity<.001)return;
+  if(!dotTile){dotTile=document.createElement('canvas');dotTile.width=dotTile.height=64;}
+  if(!dotPattern||Math.abs(grid.spacing-dotSpacing)>.001){
+    // Keep a constant screen radius: tiny scaled raster dots shimmer and form
+    // moire bands. Reuse the tile and redraw one dot only when zoom changes.
+    const ink=dotTile.getContext('2d');ink.clearRect(0,0,64,64);ink.fillStyle='#b9bdc7';ink.beginPath();ink.arc(32,32,.8*64/grid.spacing,0,Math.PI*2);ink.fill();
+    dotPattern=ctx.createPattern(dotTile,'repeat');dotSpacing=grid.spacing;
+  }
   // Fixed world spacing, one layer, and exactly the bubble camera. Density
   // never switches levels; only contrast fades continuously at distant zooms.
-  dotPattern.setTransform(new DOMMatrix().translate(grid.x-grid.spacing/2,grid.y-grid.spacing/2).scale(grid.spacing/32));
+  dotPattern.setTransform(new DOMMatrix().translate(grid.x-grid.spacing/2,grid.y-grid.spacing/2).scale(grid.spacing/64));
   ctx.save();ctx.fillStyle=dotPattern;ctx.globalAlpha=grid.opacity;ctx.fillRect(0,0,w,h);
   ctx.restore();
 }
