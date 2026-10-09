@@ -1,8 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CloudHistory,cloudCenter,fitCloud,gatheringCloudBounds,swipeCropScale,projectCloud,rescaleScreenCloud} from '../dist/cloud-navigation.js';
+import {CloudHistory,cloudCenter,fitCloud,gatheringCloudBounds,swipeCropScale,projectCloud,rescaleScreenCloud,dotGridView,rebaseDotGrid} from '../dist/cloud-navigation.js';
 import {ClusterCatalog} from '../dist/cluster-tree.js';
 import {BubbleField} from '../dist/physics.js';
+import {PeriodTravel} from '../dist/period-travel.js';
+
+test('dot lattice follows the bubble camera continuously across zoom levels and crops',()=>{
+ const camera={width:360,height:500,x:191.3,y:232.7,panX:23,panY:-19,anchorX:2,anchorY:3};
+ for(const pivot of [.5,1,2,4,8]){
+  const before=dotGridView({...camera,scale:pivot-1e-7}),after=dotGridView({...camera,scale:pivot+1e-7});
+  assert.ok(Math.abs(after.spacing-before.spacing)<.00001,'no density-level reset');
+  assert.ok(Math.abs(after.opacity-before.opacity)<.00001,'contrast is continuous');
+  assert.ok(Math.abs(after.x-before.x)<.001&&Math.abs(after.y-before.y)<.001,'camera phase is continuous');
+ }
+ const a=dotGridView({...camera,scale:3}),b=dotGridView({...camera,x:camera.x+10,y:camera.y-5,scale:3});
+ assert.equal(b.x-a.x,-30);assert.equal(b.y-a.y,15,'pan and crop use the exact world-to-screen transform');
+ assert.equal(dotGridView({...camera,scale:6}).spacing/a.spacing,2,'grid spacing magnifies with expense radii');
+});
+
+test('completed and cancelled physical swipes preserve the same dot lattice on screen',()=>{
+ const width=360,height=500,source=[{id:'a',x:180,y:250,r:20}],target=[{id:'b',x:180,y:250,r:60}];
+ const phase=(x,step)=>((x%step)+step)%step;
+ for(const direction of [-1,1])for(const complete of [true,false]){
+  const travel=new PeriodTravel(source,target,{width,height,direction,fromCamera:{x:180,y:250,scale:3}});
+  const camera=travel.camera(complete?1:.35),anchor={x:2.125,y:6.7};
+  const before=dotGridView({width,height,...camera,anchorX:anchor.x,anchorY:anchor.y});
+  const finished=travel.finish(complete,camera),rebased=complete?rebaseDotGrid(anchor,-travel.shiftX,-travel.shiftY):anchor;
+  const after=dotGridView({width,height,...finished.camera,anchorX:rebased.x,anchorY:rebased.y});
+  assert.equal(after.spacing,before.spacing);
+  assert.ok(Math.abs(phase(before.x,before.spacing)-phase(after.x,after.spacing))<1e-9,'horizontal handoff cannot jump');
+  assert.ok(Math.abs(phase(before.y,before.spacing)-phase(after.y,after.spacing))<1e-9,'vertical handoff cannot jump');
+ }
+});
 
 test('contraction camera fits the forming cloud without waiting for distant retained bubbles',()=>{
  const bodies=[{id:'large',x:180,y:250,r:45,targetR:45},{id:'small',x:235,y:250,r:10,targetR:10},{id:'late',x:1800,y:250,r:5,targetR:5}].map(b=>({...b,inPeriod:true,cluster:true,centerX:180,centerY:250,tx:180,ty:250,gatherRadius:100,vx:0,vy:0}));

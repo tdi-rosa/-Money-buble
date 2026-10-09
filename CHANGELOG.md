@@ -1,3 +1,9 @@
+## 0.8.4
+
+- Conserve une seule trame à espacement physique fixe : supprime les changements de densité qui provoquaient des sursauts au zoom et au recadrage.
+- Préserve la phase des points lorsque le swipe normalise le monde physique ; aucun saut du fond à la fin du glissement.
+- La trame partage exactement la caméra des bulles et réduit seulement son contraste progressivement quand les points deviennent trop serrés.
+
 ## 0.8.3
 
 - Ajoute une trame discrète de points gris derrière les bulles, liée à la même échelle physique et à la même caméra dans les trois modes.

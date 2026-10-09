@@ -1,5 +1,5 @@
 import {PeriodTravel} from './period-travel.js';
-import {CloudHistory,cloudCenter,fitCloud,gatheringCloudBounds} from './cloud-navigation.js';
+import {CloudHistory,cloudCenter,fitCloud,gatheringCloudBounds,dotGridView,rebaseDotGrid} from './cloud-navigation.js';
 import {ownsSimulationFrame,targetCloudRadius,projectCameraPoint,reprojectDeparture} from './simulation-state.js';
 import {FluidGauge} from './fluid-gauge.js';
 import {hitRenderedBubbles} from './bubble-layout.js';
@@ -80,6 +80,7 @@ function completePeriodTravel(toTarget){
   cloudHistory.save(current.fromPeriod.mode,current.fromPeriod.date,current.source);
   cloudHistory.save(current.toPeriod.mode,current.toPeriod.date,current.normalizedTarget());
   const finished=current.finish(toTarget,{x:cameraX,y:cameraY,scale:zoom*fitZoom});
+  if(toTarget)dotAnchor=rebaseDotGrid(dotAnchor,-current.shiftX,-current.shiftY);
   field.bodies=finished.bodies;applyTravelCamera(finished.camera);
   physicalPeriod=toTarget?current.toPeriod:current.fromPeriod;
   for(const b of field.bodies)if(b.inPeriod!==false)bodyPool.set(b.id,b);
@@ -180,26 +181,19 @@ function paintBodies(bodies,{offset=0,screen=false}={}){
     }
   }ctx.restore();
 }
-let dotPattern=null;
+let dotPattern=null,dotAnchor={x:0,y:0};
 function paintDotGrid(){
   if(!dotPattern){
     const tile=document.createElement('canvas');tile.width=tile.height=32;
     const ink=tile.getContext('2d');ink.fillStyle='#b9bdc7';ink.beginPath();ink.arc(16,16,1.15,0,Math.PI*2);ink.fill();
     dotPattern=ctx.createPattern(tile,'repeat');
   }
-  const scale=Math.max(.01,zoom*fitZoom),base=8;
-  // One world-anchored ruler for every period. Fade intermediate points when
-  // zooming out instead of letting a dense grid compete with the expenses.
-  const level=Math.max(0,Math.log2(16/(base*scale))),whole=Math.floor(level),fraction=level-whole;
-  const fine=base*2**whole*scale,blend=fraction*fraction*(3-2*fraction);
-  const originX=w/2-cameraX*scale+pan,originY=h/2-cameraY*scale+panY;
-  ctx.save();ctx.fillStyle=dotPattern;
-  for(const [spacing,opacity] of [[fine,1-blend],[fine*2,blend]]){
-    if(opacity<.001)continue;
-    // Cached vector tile: no per-dot drawing or new canvas allocation per frame.
-    dotPattern.setTransform(new DOMMatrix().translate(originX-spacing/2,originY-spacing/2).scale(spacing/32));
-    ctx.globalAlpha=.65*opacity;ctx.fillRect(0,0,w,h);
-  }
+  const grid=dotGridView({width:w,height:h,x:cameraX,y:cameraY,scale:Math.max(.01,zoom*fitZoom),panX:pan,panY,anchorX:dotAnchor.x,anchorY:dotAnchor.y});
+  if(grid.opacity<.001)return;
+  // Fixed world spacing, one layer, and exactly the bubble camera. Density
+  // never switches levels; only contrast fades continuously at distant zooms.
+  dotPattern.setTransform(new DOMMatrix().translate(grid.x-grid.spacing/2,grid.y-grid.spacing/2).scale(grid.spacing/32));
+  ctx.save();ctx.fillStyle=dotPattern;ctx.globalAlpha=grid.opacity;ctx.fillRect(0,0,w,h);
   ctx.restore();
 }
 function draw(){
