@@ -7,7 +7,7 @@ import {PeriodTravel} from '../dist/period-travel.js';
 
 test('dot lattice follows the bubble camera continuously across zoom levels and crops',()=>{
  const camera={width:360,height:500,x:191.3,y:232.7,panX:23,panY:-19,anchorX:2,anchorY:3};
- for(const pivot of [.5,1,2,4,8]){
+ for(const pivot of [.125,.25,.375,.5,1,2,4,8]){
   const before=dotGridView({...camera,scale:pivot-1e-7}),after=dotGridView({...camera,scale:pivot+1e-7});
   assert.ok(Math.abs(after.spacing-before.spacing)<.00001,'no density-level reset');
   assert.ok(Math.abs(after.opacity-before.opacity)<.00001,'contrast is continuous');

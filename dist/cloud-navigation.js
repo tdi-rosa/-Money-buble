@@ -48,7 +48,7 @@ export function swipeCropScale(from,to,progress){
   // Interpolate the visible world extent. Both clouds use this single scale.
   return 1/((1-t)/from+t/to);
 }
-export const DOT_GRID_STEP=8;
+export const DOT_GRID_STEP=32;
 export function dotGridView({width,height,x,y,scale,panX=0,panY=0,anchorX=0,anchorY=0}){
   const spacing=DOT_GRID_STEP*scale,t=Math.max(0,Math.min(1,(spacing-4)/8));
   return {spacing,x:width/2+(anchorX-x)*scale+panX,y:height/2+(anchorY-y)*scale+panY,opacity:.65*t*t*(3-2*t)};
