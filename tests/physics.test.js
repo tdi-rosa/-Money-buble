@@ -1,43 +1,4 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {BubbleField,resolveCollisions} from '../dist/physics.js';import {bounds,navigate,groupTransactions,sum} from '../dist/periods.js';
-import {packCluster} from '../dist/circle-pack.js';
-import {resolveSmoothedContacts} from '../dist/physics.js';
-
-test('worker packet smoothing cannot leave overlapping painted contacts at rest',()=>{
- const bodies=[{id:'a',x:0,y:0,r:20,tx:0,ty:0,alpha:1,layoutGuide:true},{id:'b',x:15,y:0,r:10,tx:34,ty:0,alpha:1,layoutGuide:true}];
- resolveSmoothedContacts(bodies,2);
- assert.ok(Math.hypot(bodies[0].x-bodies[1].x,bodies[0].y-bodies[1].y)>=32-.03);assert.deepEqual(bodies.map(b=>b.r),[20,10]);
-});
-
-test('packing guides existing positions through live contacts rather than replacing them',()=>{
- const items=Array.from({length:31},(_,i)=>({id:String(i),amountCents:i?36:2500})),packed=packCluster(items),f=new BubbleField();
- f.bodies=items.map((t,i)=>{const p=packed.get(t.id);return {id:t.id,x:-p.x+150,y:-p.y||0,tx:p.x,ty:p.y,motionX:p.x,motionY:p.y,r:p.r,targetR:p.r,cluster:true,layoutGuide:true,centerX:0,centerY:0,inPeriod:true,alpha:1,phase:i*2.3999632297,travelSpeed:450,collisionGap:1};});
- const initial=f.bodies.map(b=>({x:b.x,y:b.y,r:b.r})),error=()=>f.bodies.reduce((sum,b)=>sum+Math.hypot(b.x-b.tx,b.y-b.ty),0)/f.bodies.length,start=error();
- f.stepLive(0);assert.deepEqual(f.bodies.map(b=>({x:b.x,y:b.y,r:b.r})),initial);
- f.stepLive(1/60,{organic:true});for(let i=0;i<f.bodies.length;i++)assert.ok(Math.hypot(f.bodies[i].x-initial[i].x,f.bodies[i].y-initial[i].y)<8,'initial motion remains gradual');
- for(let frame=0;frame<1200;frame++){
-  f.stepLive(1/60,{organic:true});
-  for(let i=0;i<f.bodies.length;i++){const b=f.bodies[i];assert.equal(b.r,initial[i].r);assert.ok([b.x,b.y,b.vx,b.vy].every(Number.isFinite));
-   for(let j=0;j<i;j++){const a=f.bodies[j],allowance=Math.min(a.r,b.r)*.02;assert.ok(Math.hypot(a.x-b.x,a.y-b.y)>=a.r+b.r-allowance-.05,'contacts never swallow circles');}
-  }
- }
- assert.ok(error()<start*.05,'the cloud reaches the canonical packing using forces');assert.equal(f.bodies.length,31);
- const before=f.bodies.map(b=>({x:b.x,y:b.y}));for(let frame=0;frame<120;frame++)f.stepLive(1/60,{organic:true});assert.ok(f.bodies.some((b,i)=>Math.hypot(b.x-before[i].x,b.y-before[i].y)>.2),'the packing stays alive');
-});
-
-test('frontal guided circles slide past each other without teleporting or losing collisions',()=>{
- const f=new BubbleField();f.bodies=[[-21,21,'a'],[21,-21,'b']].map(([x,tx,id])=>({id,x,y:0,tx,ty:0,targetR:20,r:20,inPeriod:true,cluster:true,layoutGuide:true,centerX:0,centerY:0,alpha:1,travelSpeed:450,collisionGap:2}));
- let detour=0;for(let frame=0;frame<1200;frame++){f.stepLive(1/60);detour=Math.max(detour,Math.abs(f.bodies[0].y));assert.ok(Math.hypot(f.bodies[0].x-f.bodies[1].x,f.bodies[0].y-f.bodies[1].y)>=39.6-.05);}
- assert.ok(detour>10,'a head-on blockage creates a physical detour');for(const b of f.bodies)assert.ok(Math.hypot(b.x-b.tx,b.y-b.ty)<.1);
- assert.ok(Math.hypot(f.bodies[0].x-f.bodies[1].x,f.bodies[0].y-f.bodies[1].y)>=42-.03,'the exact contact gap returns after the pressure drops');
-});
-
-test('guided contacts yield only under strong opposing pressure, with a screen-space cap',()=>{
- for(const scale of [.2,1,5])for(const strong of [false,true]){
-  const f=new BubbleField();f.bodies=[[-19.7,21,'a'],[19.7,-21,'b']].map(([x,target,id])=>({id,x,y:0,tx:strong?target:Math.sign(x)*21,ty:0,targetR:20,r:20,inPeriod:true,cluster:true,layoutGuide:true,centerX:0,centerY:0,alpha:1,collisionGap:2}));
-  f.stepLive(0,{pixelScale:scale});const distance=Math.abs(f.bodies[0].x-f.bodies[1].x);
-  assert.ok(distance>=40-Math.min(.4,.6/scale)-.03);if(!strong)assert.ok(distance>=42-.03,'ordinary movement retains perfect contacts');else assert.ok(distance<42,'only a strong squeeze can yield');
- }
-});
 test('a grabbed bubble returns to its center after release',()=>{const f=new BubbleField();f.resize(400,400);f.reconcile([{id:'a',tx:200,ty:200,targetR:20,spawnX:200,spawnY:200}]);for(let i=0;i<240;i++)f.step(1/120);f.dragId='a';f.bodies[0].x=340;for(let i=0;i<30;i++)f.step(1/120);assert.equal(f.bodies[0].x,340);f.dragId=null;for(let i=0;i<1000;i++)f.step(1/120);assert.ok(Math.abs(f.bodies[0].x-200)<.01)});
 test('collisions resolve without losing bodies or creating NaN',()=>{const f=new BubbleField();f.resize(500,500);f.reconcile(Array.from({length:25},(_,i)=>({id:String(i),tx:250,ty:250,targetR:12+(i%3)*2})));for(let i=0;i<1000;i++)f.step(1/120);assert.equal(f.bodies.length,25);for(const b of f.bodies)assert.ok([b.x,b.y,b.vx,b.vy,b.r].every(Number.isFinite));for(let i=0;i<f.bodies.length;i++)for(let j=0;j<i;j++)assert.ok(Math.hypot(f.bodies[i].x-f.bodies[j].x,f.bodies[i].y-f.bodies[j].y)>f.bodies[i].r+f.bodies[j].r-2)});
 test('reconciliation retains positions and removes faded bodies',()=>{const f=new BubbleField();f.reconcile([{id:'a',tx:200,ty:200,targetR:20},{id:'b',tx:300,ty:200,targetR:20}]);for(let i=0;i<100;i++)f.step(1/120);const x=f.bodies[0].x;f.reconcile([{id:'a',tx:100,ty:100,targetR:12}]);assert.equal(f.bodies[0].x,x);for(let i=0;i<250;i++)f.step(1/120);assert.equal(f.bodies.length,1)});

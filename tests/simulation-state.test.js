@@ -25,12 +25,11 @@ test('immediate cropping preserves outgoing screen position, radius, target and 
 });
 
 test('month swipe to a different month, then week and day regroups retained circles despite expired clocks',()=>{
- for(const layoutGuide of [false,true]){
  const rows=Array.from({length:240},(_,i)=>({id:String(i),date:`2026-${i<120?'08':'09'}-${String(1+i%30).padStart(2,'0')}`,amountCents:100+(i%11)*300}));
  const catalog=new ClusterCatalog(rows),field=new BubbleField(),options={width:360,height:500,date:'2026-09-08'};
  // The swipe installs the new month's packed root, with no arriving flags.
  const month=catalog.layout({...options,mode:'month'});
- field.bodies=month.specs.map(s=>({...s,layoutGuide,x:s.tx,y:s.ty,r:s.targetR,vx:0,vy:0,arriving:false}));
+ field.bodies=month.specs.map(s=>({...s,x:s.tx,y:s.ty,r:s.targetR,vx:0,vy:0,arriving:false}));
  for(const mode of ['week','day']){
   const layout=catalog.layout({...options,mode}),old=new Map(field.bodies.map(b=>[b.id,b])),radius=targetCloudRadius(layout.specs,360,500);
   field.bodies=layout.specs.map(s=>({...old.get(s.id),...s,gatherRadius:radius,gatheringUntil:0,arriving:false,r:s.targetR}));
@@ -43,9 +42,8 @@ test('month swipe to a different month, then week and day regroups retained circ
   assert.ok(after<=radius+6/layout.fitZoom,`${mode}: cloud must regain its compact footprint (${before} → ${after}, radius ${radius})`);
   assert.ok(field.bodies.every(b=>[b.x,b.y,b.vx,b.vy].every(Number.isFinite)));
   for(let i=0;i<field.bodies.length;i++)for(let j=0;j<i;j++){
-   const a=field.bodies[i],b=field.bodies[j],yieldLimit=layoutGuide?Math.min(Math.min(a.r,b.r)*.02,.6/layout.fitZoom):0;assert.ok(Math.hypot(a.x-b.x,a.y-b.y)>=a.r+b.r-yieldLimit-.1,'collisions remain active, with only the pressure allowance');
+   const a=field.bodies[i],b=field.bodies[j];assert.ok(Math.hypot(a.x-b.x,a.y-b.y)>=a.r+b.r-.1,'collisions remain active');
   }
- }
  }
 });
 

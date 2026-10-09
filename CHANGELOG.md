@@ -1,10 +1,3 @@
-## 0.8.6
-
-- Organisation guidée par les positions du packing existant, avec ressorts et collisions ; les positions courantes et les rayons monétaires sont conservés lors des changements de période.
-- Glissement tangentiel au contact pour contourner les blocages frontaux, sans téléportation ni friction entre les bulles.
-- Contacts exacts en situation normale ; uniquement sous forte poussée opposée, tolérance progressive limitée à 2 % du plus petit rayon et 0,6 pixel à l’écran.
-- Physique organique, navigation dans un monde commun et calcul des grands amas en worker conservés.
-
 ## 0.8.4
 
 - Garde un rayon visuel constant pour les points afin d’éviter le scintillement et les bandes de moiré des points raster trop fins.
