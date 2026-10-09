@@ -31,16 +31,19 @@ export class BubbleField {
           b.vx=(b.x-oldX)/Math.max(delta,.001)*.25;b.vy=(b.y-oldY)/Math.max(delta,.001)*.25;
         }else{
           const amplitude=organic&&b.inPeriod!==false?Math.min(4/Math.max(.01,pixelScale),Math.max(1/Math.max(.01,pixelScale),b.r*.22)):0,phase=b.phase??0;
-          const clustering=b.cluster&&b.inPeriod!==false;
-          const x=(clustering?b.centerX:b.motionX??b.tx)+Math.sin(this.time*.9+phase)*amplitude,y=(clustering?b.centerY:b.motionY??b.ty)+Math.cos(this.time*.7+phase)*amplitude,arriving=clustering&&(b.arriving===true||(b.arriving===undefined&&Math.hypot(b.x-b.centerX,b.y-b.centerY)>Math.hypot(b.tx-b.centerX,b.ty-b.centerY)+b.r*2+20)),
-            gathering=clustering&&(this.time<Math.max(b.gatheringUntil??0,this.regroupUntil??0)||(Number.isFinite(b.gatherRadius)&&Math.hypot(b.x-b.centerX,b.y-b.centerY)+b.r>b.gatherRadius+4/Math.max(.01,pixelScale))),damping=Math.exp(-(arriving||gathering?12:clustering?5:12)*delta),spring=arriving||gathering||b.departing?35:clustering?1:55;
+          const clustering=b.cluster&&b.inPeriod!==false,guided=clustering&&b.layoutGuide;
+          // Far arrivals first converge on the existing cloud. Inside its footprint,
+          // the canonical packing is a spring destination, never a position assignment.
+          const guideMix=guided&&Number.isFinite(b.gatherRadius)?Math.max(0,Math.min(1,(b.gatherRadius-Math.hypot(b.x-b.centerX,b.y-b.centerY)-b.r)/(8/Math.max(.01,pixelScale)))):1;
+          const x=(guided?b.centerX+((b.motionX??b.tx)-b.centerX)*guideMix:clustering?b.centerX:b.motionX??b.tx)+Math.sin(this.time*.9+phase)*amplitude,y=(guided?b.centerY+((b.motionY??b.ty)-b.centerY)*guideMix:clustering?b.centerY:b.motionY??b.ty)+Math.cos(this.time*.7+phase)*amplitude,arriving=clustering&&(b.arriving===true||(b.arriving===undefined&&Math.hypot(b.x-b.centerX,b.y-b.centerY)>Math.hypot(b.tx-b.centerX,b.ty-b.centerY)+b.r*2+20)),
+            gathering=clustering&&(guided&&Math.hypot(b.x-b.tx,b.y-b.ty)>8/Math.max(.01,pixelScale)||this.time<Math.max(b.gatheringUntil??0,this.regroupUntil??0)||(Number.isFinite(b.gatherRadius)&&Math.hypot(b.x-b.centerX,b.y-b.centerY)+b.r>b.gatherRadius+4/Math.max(.01,pixelScale))),damping=Math.exp(-(arriving||gathering?12:clustering?5:12)*delta),spring=arriving||gathering||b.departing?35:guided?8:clustering?1:55;
           b.vx=(b.vx+(x-b.x)*spring*delta)*damping;b.vy=(b.vy+(y-b.y)*spring*delta)*damping;
           const speed=Math.hypot(b.vx,b.vy),limit=b.travelSpeed/Math.max(.05,pixelScale);if(b.travelSpeed&&speed>limit){b.vx*=limit/speed;b.vy*=limit/speed;}
           b.x+=b.vx*delta;b.y+=b.vy*delta;
         }
       }
       const local=viewport?this.bodies.filter(b=>b.x+b.r>=viewport.left&&b.x-b.r<=viewport.right&&b.y+b.r>=viewport.top&&b.y-b.r<=viewport.bottom):this.bodies;
-      contactError=resolveLiveContacts(local,{tolerance,dragId:this.dragId});
+      contactError=resolveLiveContacts(local,{tolerance,dragId:this.dragId,pixelScale,delta});
     }
     this.settled=!organic&&!this.dragId&&contactError<=tolerance&&this.bodies.every(b=>
       Math.hypot(b.x-(b.motionX??b.tx),b.y-(b.motionY??b.ty))<.08/Math.max(.01,pixelScale)&&Math.hypot(b.vx,b.vy)<.15/Math.max(.01,pixelScale));
@@ -91,10 +94,11 @@ export function resolveCollisions(bodies,{iterations=64,tolerance=.001,dragId=nu
 
 // Resting circles remain collision obstacles, but only disturbed circles query
 // neighbours. A contact wakes its neighbour in the same pass.
-function resolveLiveContacts(bodies,{tolerance,dragId}){
+function resolveLiveContacts(bodies,{tolerance,dragId,pixelScale,delta}){
   const active=new Set(bodies.filter(b=>b.id===dragId||Math.hypot(b.vx,b.vy)>tolerance||Math.hypot(b.x-(b.motionX??b.tx),b.y-(b.motionY??b.ty))>tolerance));
   if(!active.size)return 0;let residual=0;
-  for(let iteration=0;iteration<(bodies.length<=200?8:3);iteration++){
+  const iterations=bodies.length<=200?(bodies.some(b=>b.layoutGuide)?32:8):3;
+  for(let iteration=0;iteration<iterations;iteration++){
     const tiers=new Map();
     for(const b of bodies){const level=Math.ceil(Math.log2(Math.max(4,b.r*2+(b.collisionGap??2)))),cell=2**level;
       if(!tiers.has(level))tiers.set(level,new Map());const grid=tiers.get(level),key=Math.floor(b.x/cell)+':'+Math.floor(b.y/cell);
@@ -110,12 +114,29 @@ function resolveLiveContacts(bodies,{tolerance,dragId}){
         else for(let x=minX;x<=maxX;x++)for(let y=minY;y<=maxY;y++){const bucket=grid.get(x+':'+y);if(bucket)buckets.push(bucket);}
         for(const bucket of buckets)for(const other of bucket){
           if(b===other)continue;const pair=String(b.id)<String(other.id)?JSON.stringify([b.id,other.id]):JSON.stringify([other.id,b.id]);if(seen.has(pair))continue;seen.add(pair);
-          const ax=b.x-other.x,ay=b.y-other.y,minimum=b.r+other.r+Math.min(b.collisionGap??2,other.collisionGap??2);
+          const ax=b.x-other.x,ay=b.y-other.y,guided=b.layoutGuide&&other.layoutGuide&&b.inPeriod!==false&&other.inPeriod!==false,
+            travelling=guided&&(Math.hypot(b.x-b.tx,b.y-b.ty)>b.r*.25||Math.hypot(other.x-other.tx,other.y-other.ty)>other.r*.25),
+            // Yield only under strong opposing spring pressure, never simply
+            // because a circle is moving. Ordinary contacts keep their exact gap.
+            separation=Math.hypot(ax,ay),pressure=guided&&separation>.00001?Math.max(0,-(((b.tx-b.x)-(other.tx-other.x))*ax+((b.ty-b.y)-(other.ty-other.y))*ay)/separation)*pixelScale:0,
+            stress=Math.max(0,Math.min(1,(pressure-12)/24)),
+            gap=Math.min(b.collisionGap??2,other.collisionGap??2),
+            give=stress*(gap+Math.min(Math.min(b.r,other.r)*.02,.6/Math.max(.01,pixelScale))),
+            minimum=b.r+other.r+gap-give;
           if(Math.abs(ax)>=minimum||Math.abs(ay)>=minimum)continue;const distance=Math.hypot(ax,ay),overlap=minimum-distance;if(overlap<=tolerance)continue;
           if(b.inPeriod!==false&&other.inPeriod!==false){if(b.arriving===true&&other.arriving!==true)b.arriving=false;if(other.arriving===true&&b.arriving!==true)other.arriving=false;}
           worst=Math.max(worst,overlap);const nx=distance>.00001?ax/distance:1,ny=distance>.00001?ay/distance:0,invA=b.id===dragId?0:1/Math.max(1,b.r*b.r),invB=other.id===dragId?0:1/Math.max(1,other.r*other.r),total=invA+invB;if(!total)continue;
           const correction=(overlap+tolerance)/total;b.x+=nx*correction*invA;b.y+=ny*correction*invA;other.x-=nx*correction*invB;other.y-=ny*correction*invB;
-          const closing=(b.vx-other.vx)*nx+(b.vy-other.vy)*ny;if(closing<0){const impulse=-1.08*closing/total;b.vx+=nx*impulse*invA;b.vy+=ny*impulse*invA;other.vx-=nx*impulse*invB;other.vy-=ny*impulse*invB;}
+          const closing=(b.vx-other.vx)*nx+(b.vy-other.vy)*ny;if(closing<0){const impulse=-(guided?1:1.08)*closing/total;b.vx+=nx*impulse*invA;b.vy+=ny*impulse*invA;other.vx-=nx*impulse*invB;other.vy-=ny*impulse*invB;}
+          // A frontal contact otherwise cancels all motion towards the target.
+          // Turn part of that lost motion tangentially so circles slide around
+          // an obstacle. No friction, relocation or collision disabling.
+          if(travelling&&iteration===0&&delta>0){
+            const gx=(b.tx-b.x)-(other.tx-other.x),gy=(b.ty-b.y)-(other.ty-other.y),towards=-(gx*nx+gy*ny);
+            if(towards>0){const tangent=-gx*ny+gy*nx,side=Math.abs(tangent)>.001?Math.sign(tangent):(String(b.id)<String(other.id)?1:-1),slip=side*Math.min(towards*8,60/Math.max(.01,pixelScale))*delta/total;
+              b.vx-=ny*slip*invA;b.vy+=nx*slip*invA;other.vx+=ny*slip*invB;other.vy-=nx*slip*invB;
+            }
+          }
           if(!active.has(other)){active.add(other);queue.push(other);}
         }
       }

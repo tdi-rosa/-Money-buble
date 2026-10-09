@@ -35,7 +35,7 @@ function simulate(elapsed,scale,organic,camera){
   if(field.bodies.length<=60){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;}return field.stepLive(elapsed,{pixelScale:scale,organic,camera});}
   const message={running:true,options:{pixelScale:scale,organic,camera},dragId:field.dragId,dragTarget:field.dragTarget};
   if(simulationBodies!==field.bodies){simulationBodies=field.bodies;simulationPositions=simulationArrivals=null;message.revision=++simulationRevision;message.time=field.time||0;message.regroupUntil=field.regroupUntil||0;
-    message.bodies=field.bodies.map(({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,arriving,gatheringUntil,gatherRadius,departing,departureView,travelSpeed})=>({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,phase,arriving,gatheringUntil,gatherRadius,departing,departureView,travelSpeed}));}
+    message.bodies=field.bodies.map(({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,layoutGuide,phase,arriving,gatheringUntil,gatherRadius,departing,departureView,travelSpeed})=>({id,x,y,vx,vy,r,targetR,tx,ty,motionX,motionY,alpha,inPeriod,cluster,centerX,centerY,collisionGap,layoutGuide,phase,arriving,gatheringUntil,gatherRadius,departing,departureView,travelSpeed}));}
   simulationWorker.postMessage(message);simulationRunning=true;
   if(simulationPositions){const follow=1-Math.exp(-20*elapsed);for(let i=0;i<field.bodies.length;i++){
     const b=field.bodies[i],raw={x:simulationPositions[i*4],y:simulationPositions[i*4+1]},p=b.departing?projectCameraPoint(raw,simulationCamera,camera):raw,velocityScale=b.departing&&simulationCamera?simulationCamera.scale/camera.scale:1;
@@ -58,7 +58,7 @@ function receiveLayout(result){
     if(prefs.motion){applyTravelCamera(periodTravel.camera(1));completePeriodTravel(true);slide=null;}
     else slide={fromProgress:periodTravel.progress,progress:0};
   }else if(prefs.motion){
-    field.bodies=cloudHistory.restore(mode,selected,result.specs).map((b,i)=>({...b,motionX:b.tx,motionY:b.ty,phase:i*2.3999632297,gatherRadius,gatheringUntil:0,travelSpeed:450,amountText:amount(b.transaction.amountCents)}));
+    field.bodies=cloudHistory.restore(mode,selected,result.specs).map((b,i)=>({...b,motionX:b.tx,motionY:b.ty,layoutGuide:true,phase:i*2.3999632297,gatherRadius,gatheringUntil:0,travelSpeed:450,amountText:amount(b.transaction.amountCents)}));
     fitZoom=fitTarget=result.fitZoom;field.regroupUntil=0;join=null;
     const center=cloudCenter(field.bodies,w,h);cameraX=center.x;cameraY=center.y;
   }else beginJoin(result,gatherRadius);
@@ -96,7 +96,7 @@ function ensurePeriodTravel(date,direction,world){
   if(periodTravel)completePeriodTravel(!!slide||!!pendingNavigation);
   rememberCloud();
   const fromPeriod=physicalPeriod||{mode,date:selected},scale=zoom*fitZoom;
-  const target=world.map(b=>({...b,amountText:amount(b.transaction.amountCents),motionX:b.tx,motionY:b.ty,gatherRadius:targetCloudRadius(world,w,h),gatheringUntil:0}));
+  const target=world.map(b=>({...b,amountText:amount(b.transaction.amountCents),motionX:b.tx,motionY:b.ty,layoutGuide:true,gatherRadius:targetCloudRadius(world,w,h),gatheringUntil:0}));
   const source=field.bodies.filter(b=>b.inPeriod!==false||Math.abs(b.x-cameraX)*scale<w/2+b.r*scale&&Math.abs(b.y-cameraY)*scale<h/2+b.r*scale);
   periodTravel=new PeriodTravel(source,target,{width:w,height:h,direction,fromCamera:{x:cameraX-pan/scale,y:cameraY-panY/scale,scale}});
   periodTravel.fromPeriod=fromPeriod;periodTravel.toPeriod={mode,date};
@@ -132,7 +132,7 @@ function beginJoin(result,gatherRadius){
       x=w/2+(length>1?dx/length:Math.cos(angle))*reach;y=h/2+(length>1?dy/length:Math.sin(angle))*reach;
       if(!previous.size){x=s.tx+Math.cos(angle)*Math.min(14,s.targetR*.25);y=s.ty+Math.sin(angle)*Math.min(14,s.targetR*.25);}
     }
-    Object.assign(b,s,{x,y,motionX:s.tx,motionY:s.ty,r:s.targetR,alpha:1,retired:false,gatherRadius,departureView:null,gatheringUntil:(field.time||0)+(previous.size ? .85 : 0),arriving:!!previous.size&&(!old||old.departing),departing:false,travelSpeed:450,vx:b.vx||0,vy:b.vy||0,phase:i*2.3999632297,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;
+    Object.assign(b,s,{x,y,motionX:s.tx,motionY:s.ty,layoutGuide:true,r:s.targetR,alpha:1,retired:false,gatherRadius,departureView:null,gatheringUntil:(field.time||0)+(previous.size ? .85 : 0),arriving:!!previous.size&&(!old||old.departing),departing:false,travelSpeed:450,vx:b.vx||0,vy:b.vy||0,phase:i*2.3999632297,amountText:amount(s.transaction.amountCents)});bodyPool.set(s.id,b);return b;
   });
   for(const b of previous.values())if(!active.has(b.id)){
     const dx=b.x-w/2,dy=b.y-h/2,length=Math.hypot(dx,dy)||1,reach=Math.max(w,h)/Math.max(.05,fitZoom)+b.r*2;
