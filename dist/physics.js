@@ -61,7 +61,7 @@ export class BubbleField {
 
 // Radius tiers prevent one large expense from putting every small circle in
 // the same grid cell. Each pair is considered once, only in neighbouring cells.
-export function resolveCollisions(bodies,{iterations=64,tolerance=.001,dragId=null,includeOutgoing=false,impulses=false}={}){
+export function resolveCollisions(bodies,{iterations=64,tolerance=.001,dragId=null,includeOutgoing=false,impulses=false,pressureScale=null}={}){
   const visible=bodies.filter(b=>!b.retired&&(includeOutgoing||b.inPeriod!==false)&&b.alpha>=.1);
   if(visible.length<2)return 0;
   const sorted=visible.map(b=>({b,level:Math.ceil(Math.log2(Math.max(4,b.r*2+(b.collisionGap??2))))})).sort((a,b)=>b.level-a.level);
@@ -72,7 +72,7 @@ export function resolveCollisions(bodies,{iterations=64,tolerance=.001,dragId=nu
       for(const [tier,grid] of levels){
         const cell=2**tier,gx=Math.floor(b.x/cell),gy=Math.floor(b.y/cell);
         for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const other of grid.get((gx+dx)+':'+(gy+dy))||[]){
-          const ax=b.x-other.x,ay=b.y-other.y,minimum=b.r+other.r+Math.min(b.collisionGap??2,other.collisionGap??2);
+          const ax=b.x-other.x,ay=b.y-other.y,gap=pressureScale===null?Math.min(b.collisionGap??2,other.collisionGap??2):contactGap(b,other,pressureScale),minimum=b.r+other.r+gap;
           if(Math.abs(ax)>=minimum||Math.abs(ay)>=minimum)continue;
           const distance=Math.hypot(ax,ay),overlap=minimum-distance;if(overlap<=tolerance)continue;worst=Math.max(worst,overlap);
           let nx,ny;if(distance>.00001){nx=ax/distance;ny=ay/distance;}else{const seed=(String(b.id)+String(other.id)).split('').reduce((n,c)=>n+c.charCodeAt(0),0)*2.3999632297;nx=Math.cos(seed);ny=Math.sin(seed);}
@@ -94,6 +94,19 @@ export function resolveCollisions(bodies,{iterations=64,tolerance=.001,dragId=nu
 
 // Resting circles remain collision obstacles, but only disturbed circles query
 // neighbours. A contact wakes its neighbour in the same pass.
+function contactGap(b,other,pixelScale){
+ const ax=b.x-other.x,ay=b.y-other.y,separation=Math.hypot(ax,ay),guided=b.layoutGuide&&other.layoutGuide&&b.inPeriod!==false&&other.inPeriod!==false,
+  pressure=guided&&separation>.00001?Math.max(0,-(((b.tx-b.x)-(other.tx-other.x))*ax+((b.ty-b.y)-(other.ty-other.y))*ay)/separation)*pixelScale:0,
+  stress=Math.max(0,Math.min(1,(pressure-12)/24)),gap=Math.min(b.collisionGap??2,other.collisionGap??2);
+ return gap-stress*(gap+Math.min(Math.min(b.r,other.r)*.02,.6/Math.max(.01,pixelScale)));
+}
+
+// Interpolating independently between worker packets can cross otherwise valid
+// circles. Project those displayed positions back onto the same contact limits.
+export function resolveSmoothedContacts(bodies,pixelScale){
+ return resolveCollisions(bodies,{iterations:8,tolerance:.025/Math.max(.01,pixelScale),includeOutgoing:true,pressureScale:pixelScale});
+}
+
 function resolveLiveContacts(bodies,{tolerance,dragId,pixelScale,delta}){
   const active=new Set(bodies.filter(b=>b.id===dragId||Math.hypot(b.vx,b.vy)>tolerance||Math.hypot(b.x-(b.motionX??b.tx),b.y-(b.motionY??b.ty))>tolerance));
   if(!active.size)return 0;let residual=0;
@@ -116,13 +129,8 @@ function resolveLiveContacts(bodies,{tolerance,dragId,pixelScale,delta}){
           if(b===other)continue;const pair=String(b.id)<String(other.id)?JSON.stringify([b.id,other.id]):JSON.stringify([other.id,b.id]);if(seen.has(pair))continue;seen.add(pair);
           const ax=b.x-other.x,ay=b.y-other.y,guided=b.layoutGuide&&other.layoutGuide&&b.inPeriod!==false&&other.inPeriod!==false,
             travelling=guided&&(Math.hypot(b.x-b.tx,b.y-b.ty)>b.r*.25||Math.hypot(other.x-other.tx,other.y-other.ty)>other.r*.25),
-            // Yield only under strong opposing spring pressure, never simply
-            // because a circle is moving. Ordinary contacts keep their exact gap.
-            separation=Math.hypot(ax,ay),pressure=guided&&separation>.00001?Math.max(0,-(((b.tx-b.x)-(other.tx-other.x))*ax+((b.ty-b.y)-(other.ty-other.y))*ay)/separation)*pixelScale:0,
-            stress=Math.max(0,Math.min(1,(pressure-12)/24)),
-            gap=Math.min(b.collisionGap??2,other.collisionGap??2),
-            give=stress*(gap+Math.min(Math.min(b.r,other.r)*.02,.6/Math.max(.01,pixelScale))),
-            minimum=b.r+other.r+gap-give;
+            // Ordinary contacts keep their exact gap; only strong pressure yields.
+            minimum=b.r+other.r+contactGap(b,other,pixelScale);
           if(Math.abs(ax)>=minimum||Math.abs(ay)>=minimum)continue;const distance=Math.hypot(ax,ay),overlap=minimum-distance;if(overlap<=tolerance)continue;
           if(b.inPeriod!==false&&other.inPeriod!==false){if(b.arriving===true&&other.arriving!==true)b.arriving=false;if(other.arriving===true&&b.arriving!==true)other.arriving=false;}
           worst=Math.max(worst,overlap);const nx=distance>.00001?ax/distance:1,ny=distance>.00001?ay/distance:0,invA=b.id===dragId?0:1/Math.max(1,b.r*b.r),invB=other.id===dragId?0:1/Math.max(1,other.r*other.r),total=invA+invB;if(!total)continue;

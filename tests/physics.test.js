@@ -1,5 +1,12 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {BubbleField,resolveCollisions} from '../dist/physics.js';import {bounds,navigate,groupTransactions,sum} from '../dist/periods.js';
 import {packCluster} from '../dist/circle-pack.js';
+import {resolveSmoothedContacts} from '../dist/physics.js';
+
+test('worker packet smoothing cannot leave overlapping painted contacts at rest',()=>{
+ const bodies=[{id:'a',x:0,y:0,r:20,tx:0,ty:0,alpha:1,layoutGuide:true},{id:'b',x:15,y:0,r:10,tx:34,ty:0,alpha:1,layoutGuide:true}];
+ resolveSmoothedContacts(bodies,2);
+ assert.ok(Math.hypot(bodies[0].x-bodies[1].x,bodies[0].y-bodies[1].y)>=32-.03);assert.deepEqual(bodies.map(b=>b.r),[20,10]);
+});
 
 test('packing guides existing positions through live contacts rather than replacing them',()=>{
  const items=Array.from({length:31},(_,i)=>({id:String(i),amountCents:i?36:2500})),packed=packCluster(items),f=new BubbleField();

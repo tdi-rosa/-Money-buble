@@ -8,7 +8,7 @@ import {openBankWindow} from './bank-window.js';
 import {walletAt,validateCashflow} from './wallet.js';
 import {bankSnapshot} from './bank-state.js';
 import {categories,paymentKinds,paymentColor,merchantKey,euro,dateKey,shiftDate,validateImport,demoData,validDate,mergePurchaseDates,displayPurchaseDates} from './core.js';
-import {BubbleField} from './physics.js';
+import {BubbleField,resolveSmoothedContacts} from './physics.js';
 import {autoUpdates,releaseBusy} from './updates.js';
 import {bounds,navigate,groupTransactions,sum} from './periods.js';
 const $=id=>document.getElementById(id),today=dateKey(),field=new BubbleField(),canvas=$('canvas'),ctx=canvas.getContext('2d'),stage=$('stage'),liquid=new FluidGauge($('gauge'));
@@ -40,7 +40,7 @@ function simulate(elapsed,scale,organic,camera){
   if(simulationPositions){const follow=1-Math.exp(-20*elapsed);for(let i=0;i<field.bodies.length;i++){
     const b=field.bodies[i],raw={x:simulationPositions[i*4],y:simulationPositions[i*4+1]},p=b.departing?projectCameraPoint(raw,simulationCamera,camera):raw,velocityScale=b.departing&&simulationCamera?simulationCamera.scale/camera.scale:1;
     b.x+=(p.x-b.x)*follow;b.y+=(p.y-b.y)*follow;b.vx=simulationPositions[i*4+2]*velocityScale;b.vy=simulationPositions[i*4+3]*velocityScale;if(simulationArrivals)b.arriving=!!simulationArrivals[i];
-  }}
+  }resolveSmoothedContacts(field.bodies,scale);}
   return true;
 }
 function pauseSimulation(){if(simulationRunning){simulationWorker.postMessage({running:false});simulationRunning=false;simulationBodies=null;}}
