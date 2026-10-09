@@ -1,7 +1,7 @@
 {
   "name": "money-bubble",
   "private": true,
-  "version": "0.8.4",
+  "version": "0.8.5",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",

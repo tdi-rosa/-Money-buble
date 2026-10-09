@@ -1,3 +1,9 @@
+## 0.8.5
+
+- Ajoute une préférence radiale douce selon la taille : les grosses dépenses rejoignent le cœur de l’amas, les petites laissent de la place autour.
+- Conserve les positions, les rayons proportionnels, les vitesses de regroupement et les collisions ; aucun angle imposé ni animation prédéfinie.
+- Calcule les préférences séparément pour les deux amas d’un swipe, une fois par changement de simulation ; les dépenses égales partagent la même préférence.
+
 ## 0.8.4
 
 - Garde un rayon visuel constant pour les points afin d’éviter le scintillement et les bandes de moiré des points raster trop fins.

@@ -1,4 +1,22 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {BubbleField,resolveCollisions} from '../dist/physics.js';import {bounds,navigate,groupTransactions,sum} from '../dist/periods.js';
+test('a large expense joins the core of an existing small cloud through live contacts',()=>{
+ const f=new BubbleField(),body=(id,x,y,r,phase=0)=>({id,x,y,r,targetR:r,tx:0,ty:0,centerX:0,centerY:0,cluster:true,inPeriod:true,vx:0,vy:0,phase,travelSpeed:450});
+ f.bodies=[body('large',220,0,50),...Array.from({length:30},(_,i)=>body(String(i),(i%6-2.5)*14,(Math.floor(i/6)-2)*14,6,i*2.399))];
+ const initial=f.bodies.map(b=>({x:b.x,y:b.y,r:b.r}));f.stepLive(0);assert.deepEqual(f.bodies.map(b=>({x:b.x,y:b.y,r:b.r})),initial,'installing the radial preference never resets positions');
+ f.stepLive(1/60,{organic:true});assert.ok(f.bodies[0].x<220&&f.bodies[0].x>=212.5,'movement comes from acceleration, not an interpolated layout');
+ for(let i=0;i<720;i++)f.stepLive(1/60,{organic:true});
+ const large=Math.hypot(f.bodies[0].x,f.bodies[0].y),small=f.bodies.slice(1).reduce((s,b)=>s+Math.hypot(b.x,b.y),0)/30;
+ assert.ok(large<18&&small>large+35,`large bubble occupies the core (${large}), small ones surround it (${small})`);
+ assert.equal(f.bodies.length,31);
+ for(let i=0;i<f.bodies.length;i++){const a=f.bodies[i];assert.equal(a.r,initial[i].r);assert.ok([a.x,a.y,a.vx,a.vy].every(Number.isFinite));for(let j=0;j<i;j++){const b=f.bodies[j];assert.ok(Math.hypot(a.x-b.x,a.y-b.y)>=a.r+b.r-.04,'sorting preserves real collision contacts');}}
+ const from={x:f.bodies[0].x,y:f.bodies[0].y};for(let i=0;i<240;i++)f.stepLive(1/60,{organic:true});assert.ok(Math.hypot(f.bodies[0].x-from.x,f.bodies[0].y-from.y)>.1,'the organized cloud remains alive');
+});
+
+test('radial preferences stay local to each swipe cloud and equal expenses share a preference',()=>{
+ const f=new BubbleField();f.bodies=[{id:'a',x:200,y:0,r:50,targetR:50,tx:0,ty:0,centerX:0,centerY:0,cluster:true},{id:'b',x:0,y:0,r:6,targetR:6,tx:0,ty:0,centerX:0,centerY:0,cluster:true},{id:'c',x:0,y:20,r:6,targetR:6,tx:0,ty:0,centerX:0,centerY:0,cluster:true},{id:'other',x:1000,y:0,r:200,targetR:200,tx:1000,ty:0,centerX:1000,centerY:0,cluster:true}];
+ f.stepLive(0);assert.equal(f.radialPreference.get('b'),56);assert.equal(f.radialPreference.get('c'),56);assert.equal(f.radialPreference.get('other'),0);
+ f.bodies=[...f.bodies].reverse();f.stepLive(0);assert.equal(f.radialPreference.get('b'),f.radialPreference.get('c'),'equal amounts cannot be sorted by their array order');
+});
 test('a grabbed bubble returns to its center after release',()=>{const f=new BubbleField();f.resize(400,400);f.reconcile([{id:'a',tx:200,ty:200,targetR:20,spawnX:200,spawnY:200}]);for(let i=0;i<240;i++)f.step(1/120);f.dragId='a';f.bodies[0].x=340;for(let i=0;i<30;i++)f.step(1/120);assert.equal(f.bodies[0].x,340);f.dragId=null;for(let i=0;i<1000;i++)f.step(1/120);assert.ok(Math.abs(f.bodies[0].x-200)<.01)});
 test('collisions resolve without losing bodies or creating NaN',()=>{const f=new BubbleField();f.resize(500,500);f.reconcile(Array.from({length:25},(_,i)=>({id:String(i),tx:250,ty:250,targetR:12+(i%3)*2})));for(let i=0;i<1000;i++)f.step(1/120);assert.equal(f.bodies.length,25);for(const b of f.bodies)assert.ok([b.x,b.y,b.vx,b.vy,b.r].every(Number.isFinite));for(let i=0;i<f.bodies.length;i++)for(let j=0;j<i;j++)assert.ok(Math.hypot(f.bodies[i].x-f.bodies[j].x,f.bodies[i].y-f.bodies[j].y)>f.bodies[i].r+f.bodies[j].r-2)});
 test('reconciliation retains positions and removes faded bodies',()=>{const f=new BubbleField();f.reconcile([{id:'a',tx:200,ty:200,targetR:20},{id:'b',tx:300,ty:200,targetR:20}]);for(let i=0;i<100;i++)f.step(1/120);const x=f.bodies[0].x;f.reconcile([{id:'a',tx:100,ty:100,targetR:12}]);assert.equal(f.bodies[0].x,x);for(let i=0;i<250;i++)f.step(1/120);assert.equal(f.bodies.length,1)});

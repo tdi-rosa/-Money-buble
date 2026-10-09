@@ -16,6 +16,21 @@ export class BubbleField {
   }
   // Live springs operate in world space. The camera never changes physical radii.
   stepLive(dt,{viewport=null,pixelScale=1,organic=false,camera=null}={}){
+    if(this.radialBodies!==this.bodies){
+      this.radialBodies=this.bodies;this.radialPreference=new Map();
+      const clouds=new Map();
+      for(const b of this.bodies){if(!b.cluster||b.inPeriod===false)continue;const key=b.centerX+':'+b.centerY;if(!clouds.has(key))clouds.set(key,[]);clouds.get(key).push(b);}
+      for(const cloud of clouds.values()){
+        cloud.sort((a,b)=>b.targetR-a.targetR);let area=0;
+        for(let i=0;i<cloud.length;){
+          const start=i;while(i<cloud.length&&cloud[i].targetR===cloud[start].targetR)i++;
+          // A soft radial preference, never a fixed point or prescribed angle.
+          // Larger expenses occupy the core; smaller ones make room around it.
+          const radial=area?Math.max(Math.sqrt(area)*.7,cloud[start].targetR<cloud[0].targetR*.5?cloud[0].targetR+cloud[start].targetR:0):0;
+          for(let j=start;j<i;j++){const b=cloud[j];this.radialPreference.set(b.id,radial);area+=b.targetR*b.targetR;}
+        }
+      }
+    }
     const steps=Math.max(1,Math.ceil(Math.min(.05,Math.max(0,dt))*60)),delta=Math.min(.05,Math.max(0,dt))/steps;
     for(const b of this.bodies)reprojectDeparture(b,camera);
     this.time=(this.time||0)+dt;
@@ -32,7 +47,8 @@ export class BubbleField {
         }else{
           const amplitude=organic&&b.inPeriod!==false?Math.min(4/Math.max(.01,pixelScale),Math.max(1/Math.max(.01,pixelScale),b.r*.22)):0,phase=b.phase??0;
           const clustering=b.cluster&&b.inPeriod!==false;
-          const x=(clustering?b.centerX:b.motionX??b.tx)+Math.sin(this.time*.9+phase)*amplitude,y=(clustering?b.centerY:b.motionY??b.ty)+Math.cos(this.time*.7+phase)*amplitude,arriving=clustering&&(b.arriving===true||(b.arriving===undefined&&Math.hypot(b.x-b.centerX,b.y-b.centerY)>Math.hypot(b.tx-b.centerX,b.ty-b.centerY)+b.r*2+20)),
+          const radial=this.radialPreference.get(b.id)??0,dx=b.x-b.centerX,dy=b.y-b.centerY,distance=Math.hypot(dx,dy),angle=distance>.00001?Math.atan2(dy,dx):phase;
+          const x=(clustering?b.centerX+Math.cos(angle)*radial:b.motionX??b.tx)+Math.sin(this.time*.9+phase)*amplitude,y=(clustering?b.centerY+Math.sin(angle)*radial:b.motionY??b.ty)+Math.cos(this.time*.7+phase)*amplitude,arriving=clustering&&(b.arriving===true||(b.arriving===undefined&&Math.hypot(b.x-b.centerX,b.y-b.centerY)>Math.hypot(b.tx-b.centerX,b.ty-b.centerY)+b.r*2+20)),
             gathering=clustering&&(this.time<Math.max(b.gatheringUntil??0,this.regroupUntil??0)||(Number.isFinite(b.gatherRadius)&&Math.hypot(b.x-b.centerX,b.y-b.centerY)+b.r>b.gatherRadius+4/Math.max(.01,pixelScale))),damping=Math.exp(-(arriving||gathering?12:clustering?5:12)*delta),spring=arriving||gathering||b.departing?35:clustering?1:55;
           b.vx=(b.vx+(x-b.x)*spring*delta)*damping;b.vy=(b.vy+(y-b.y)*spring*delta)*damping;
           const speed=Math.hypot(b.vx,b.vy),limit=b.travelSpeed/Math.max(.05,pixelScale);if(b.travelSpeed&&speed>limit){b.vx*=limit/speed;b.vy*=limit/speed;}
