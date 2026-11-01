@@ -3,6 +3,8 @@ import {dateKey,shiftDate,demoData,validateImport,displayPurchaseDates,validDate
 
 const REFERENCE_CENTS=2000;
 const GAP=10;
+const LEFT=8;
+const BOTTOM=22;
 const stage=document.getElementById('stage');
 const canvas=document.getElementById('canvas');
 const bankKey='money-bubble-bank-display-v1';
@@ -15,7 +17,7 @@ function transactions(){const bank=read(bankKey);if(Array.isArray(bank?.transact
 if(stage&&canvas){
   const style=document.createElement('style');
   style.textContent=`
-#scaleReference{position:absolute;left:0;top:0;z-index:3;pointer-events:none;transform-origin:left top;will-change:left,top,width,height;}
+#scaleReference{position:absolute;left:${LEFT}px;bottom:${BOTTOM}px;top:auto;z-index:3;pointer-events:none;transform-origin:left bottom;will-change:width,height;}
 #scaleReference svg{display:block;width:100%;height:100%;overflow:visible;shape-rendering:geometricPrecision;}
 #canvas{will-change:transform;}
 `;
@@ -29,11 +31,9 @@ if(stage&&canvas){
   </svg>`;
   stage.append(ref);
 
-  let frameBounds=null;
   let liveCameraScale=0;
   let baseMonetaryScale=1;
   let renderQueued=false;
-  let smoothedBottom=null;
 
   function refreshBaseScale(){
     try{
@@ -54,32 +54,21 @@ if(stage&&canvas){
   }
 
   function renderReference(){
-    if(!frameBounds||!liveCameraScale){
-      ref.hidden=true;
-      canvas.style.transform='';
-      return;
-    }
+    if(!liveCameraScale){ref.hidden=true;canvas.style.transform='';return;}
     ref.hidden=false;
 
-    // targetR already includes ClusterCatalog.camera().scale. The canvas
-    // transform only contains the live zoom/fitZoom. Multiplying both makes
-    // this exactly the rendered diameter of a 20 € bubble.
+    // The person's FEET stay anchored to one fixed screen point. During a
+    // swipe only its monetary scale changes; its x/y position never follows
+    // the animated cloud bounds.
     const personHeight=2*Math.sqrt(REFERENCE_CENTS)*baseMonetaryScale*liveCameraScale;
     const personWidth=personHeight*(38/118);
-
-    // Keep centering stable: never derive the canvas translation from the
-    // animated cloud bounds. The only changing part is the monetary scale.
-    // This prevents the feedback/jitter that happened during swipes.
-    const shift=(personWidth+GAP)/2;
-    canvas.style.transform=`translateX(${shift}px)`;
-
-    const targetBottom=frameBounds.bottom;
-    smoothedBottom=smoothedBottom===null?targetBottom:smoothedBottom+(targetBottom-smoothedBottom)*.45;
-    const cloudLeft=frameBounds.left+shift;
-    ref.style.left=`${cloudLeft-GAP-personWidth}px`;
-    ref.style.top=`${smoothedBottom-personHeight}px`;
     ref.style.width=`${personWidth}px`;
     ref.style.height=`${personHeight}px`;
+
+    // Reserve half of the person's current width on the left so the stable
+    // composition remains roughly centered on person + cloud. This moves the
+    // cloud, never the person's anchor point.
+    canvas.style.transform=`translateX(${(personWidth+GAP)/2}px)`;
   }
 
   const proto=CanvasRenderingContext2D.prototype;
@@ -87,10 +76,7 @@ if(stage&&canvas){
   const originalArc=proto.arc;
 
   proto.clearRect=function(...args){
-    if(this.canvas===canvas){
-      frameBounds=null;
-      liveCameraScale=0;
-    }
+    if(this.canvas===canvas)liveCameraScale=0;
     return originalClearRect.apply(this,args);
   };
 
@@ -99,20 +85,7 @@ if(stage&&canvas){
       const m=this.getTransform();
       const pixelRatio=canvas.width/Math.max(1,canvas.clientWidth);
       const scale=Math.hypot(m.a,m.b)/Math.max(.0001,pixelRatio);
-      if(Number.isFinite(scale)&&scale>0){
-        const sx=(m.a*x+m.c*y+m.e)/pixelRatio;
-        const sy=(m.b*x+m.d*y+m.f)/pixelRatio;
-        const sr=Math.abs(r)*scale;
-        const b={left:sx-sr,right:sx+sr,top:sy-sr,bottom:sy+sr};
-        if(!frameBounds)frameBounds=b;
-        else{
-          frameBounds.left=Math.min(frameBounds.left,b.left);
-          frameBounds.right=Math.max(frameBounds.right,b.right);
-          frameBounds.top=Math.min(frameBounds.top,b.top);
-          frameBounds.bottom=Math.max(frameBounds.bottom,b.bottom);
-        }
-        liveCameraScale=scale;
-      }
+      if(Number.isFinite(scale)&&scale>0)liveCameraScale=scale;
     }
     const result=originalArc.call(this,x,y,r,...rest);
     if(this.canvas===canvas)queueRender();
@@ -120,6 +93,6 @@ if(stage&&canvas){
   };
 
   refreshBaseScale();
-  new ResizeObserver(()=>{smoothedBottom=null;refreshBaseScale();queueRender()}).observe(stage);
+  new ResizeObserver(()=>{refreshBaseScale();queueRender()}).observe(stage);
   window.addEventListener('storage',()=>{refreshBaseScale();queueRender()});
 }
