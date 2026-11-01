@@ -1,76 +1,94 @@
-import {getCatalog} from './cluster-tree.js';
-import {dateKey,shiftDate,demoData,validateImport,displayPurchaseDates,validDate} from './core.js';
-
 const REFERENCE_CENTS=2000;
+const CANVAS_SHIFT=16;
 const stage=document.getElementById('stage');
 const canvas=document.getElementById('canvas');
-const datePicker=document.getElementById('datePicker');
-const bankKey='money-bubble-bank-display-v1';
-const localKey='bulles-transactions-v1';
 
-function read(key,fallback=null){try{const raw=localStorage.getItem(key);return raw?JSON.parse(raw):fallback}catch{return fallback}}
-function buildDemo(){const today=dateKey(),list=[];for(let i=-44;i<=0;i++){const day=shiftDate(today,i);if(i!==0&&Math.abs(i)%8===0)continue;for(const t of demoData(day).filter(t=>t.date===day)){if(i!==0&&t.id.endsWith('-4')&&Math.abs(i)%3!==0)continue;list.push({...t,amountCents:t.amountCents+Math.abs(i)%5*35});}}return list}
-function transactions(){const bank=read(bankKey);if(Array.isArray(bank?.transactions))return bank.transactions;const stored=read(localKey);try{if(stored)return validateImport(stored)}catch{}return buildDemo()}
-function currentMode(){return document.querySelector('[data-mode][aria-pressed="true"]')?.dataset.mode||'day'}
-
-const style=document.createElement('style');
-style.textContent=`
-#scaleReference{position:absolute;left:8px;top:0;z-index:3;pointer-events:none;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;color:#777b86;opacity:.9;transition:top .28s ease,height .28s ease,width .28s ease}
-#scaleReference svg{display:block;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 1px 1px rgba(0,0,0,.08))}
-#scaleReference .scale-ref-label{position:absolute;top:100%;margin-top:3px;font:500 10px/1 system-ui,sans-serif;white-space:nowrap;color:#8a8e98}
-#canvas{transition:transform .28s ease;will-change:transform}
-body.reduce-motion #scaleReference,#canvas{transition:none}
+if(stage&&canvas){
+  const style=document.createElement('style');
+  style.textContent=`
+#scaleReference{position:absolute;left:0;top:0;z-index:3;pointer-events:none;transform-origin:left top;will-change:left,top,width,height;}
+#scaleReference img{display:block;width:100%;height:100%;object-fit:contain;}
+#scaleReference .scale-ref-label{position:absolute;left:50%;top:100%;transform:translateX(-50%);margin-top:3px;font:500 10px/1 system-ui,sans-serif;white-space:nowrap;color:#8a8e98;}
+#canvas{transform:translateX(${CANVAS_SHIFT}px);}
 `;
-document.head.append(style);
+  document.head.append(style);
 
-const ref=document.createElement('div');
-ref.id='scaleReference';
-ref.setAttribute('aria-hidden','true');
-ref.innerHTML=`<svg viewBox="0 0 100 280" role="img" aria-label="Repère humain équivalent à 20 euros">
-  <g fill="currentColor">
-    <ellipse cx="50" cy="25" rx="17" ry="21"/>
-    <path d="M35 49 C29 61 27 79 29 101 L31 142 C32 157 28 174 24 195 L17 257 C16 268 21 276 29 276 C36 276 40 270 41 260 L47 196 L50 162 L53 196 L59 260 C60 270 64 276 71 276 C79 276 84 268 83 257 L76 195 C72 174 68 157 69 142 L71 101 C73 79 71 61 65 49 C61 45 56 43 50 43 C44 43 39 45 35 49 Z"/>
-    <path d="M31 61 C21 68 16 84 13 105 L5 167 C4 177 8 183 14 184 C21 185 25 180 27 171 L35 111 L39 78 Z"/>
-    <path d="M69 61 C79 68 84 84 87 105 L95 167 C96 177 92 183 86 184 C79 185 75 180 73 171 L65 111 L61 78 Z"/>
-  </g>
-</svg><span class="scale-ref-label">20 €</span>`;
-stage.append(ref);
+  const ref=document.createElement('div');
+  ref.id='scaleReference';
+  ref.setAttribute('aria-hidden','true');
+  ref.innerHTML=`<img alt="" src="data:image/png;base64,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"><span class="scale-ref-label">20 €</span>`;
+  stage.append(ref);
 
-let last='';
-function update(){
-  if(!stage||!canvas||!datePicker)return;
-  const r=stage.getBoundingClientRect(),width=r.width,height=r.height,date=datePicker.value||dateKey(),mode=currentMode();
-  const items=displayPurchaseDates(transactions()).filter(t=>validDate(t.date));
-  const signature=[mode,date,Math.round(width),Math.round(height),items.length,items.at(-1)?.id||''].join('|');
-  if(signature===last)return;last=signature;
-  if(!items.length){ref.hidden=true;canvas.style.transform='';return}
-  ref.hidden=false;
-  try{
-    const camera=getCatalog(items).camera({mode,date,width,height}),root=camera.root;
-    if(!root.items.length){ref.hidden=true;canvas.style.transform='';return}
-    const screenScale=camera.scale*camera.fitZoom;
-    const personHeight=Math.max(12,2*Math.sqrt(REFERENCE_CENTS)*screenScale);
-    let bottom=-Infinity,left=Infinity;
-    for(const p of root.points.values()){
-      bottom=Math.max(bottom,p.y+p.r);
-      left=Math.min(left,p.x-p.r);
+  let frameBounds=null;
+  let frameScale=0;
+  let renderQueued=false;
+
+  function queueRender(){
+    if(renderQueued)return;
+    renderQueued=true;
+    queueMicrotask(()=>{
+      renderQueued=false;
+      renderReference();
+    });
+  }
+
+  function renderReference(){
+    if(!frameBounds||!frameScale){
+      ref.hidden=true;
+      return;
     }
-    const bottomY=height/2+bottom*screenScale;
-    const leftX=width/2+left*screenScale;
-    const personWidth=Math.max(5,personHeight*(100/280));
-    const desiredLeft=Math.max(6,Math.min(leftX-personWidth-10,width*.14));
-    ref.style.left=desiredLeft+'px';
-    ref.style.width=personWidth+'px';
-    ref.style.height=personHeight+'px';
-    ref.style.top=Math.max(4,Math.min(height-personHeight-16,bottomY-personHeight))+'px';
-    const shift=Math.max(8,Math.min(22,personWidth*.35+8));
-    canvas.style.transform=`translateX(${shift}px)`;
-  }catch{ref.hidden=true;canvas.style.transform=''}
-}
+    ref.hidden=false;
 
-new ResizeObserver(()=>{last='';update()}).observe(stage);
-for(const b of document.querySelectorAll('[data-mode],#previous,#next,#backToday'))b.addEventListener('click',()=>{last='';requestAnimationFrame(()=>requestAnimationFrame(update))});
-datePicker.addEventListener('change',()=>{last='';requestAnimationFrame(update)});
-window.addEventListener('storage',()=>{last='';update()});
-setInterval(()=>{last='';update()},500);
-update();
+    const personHeight=2*Math.sqrt(REFERENCE_CENTS)*frameScale;
+    const personWidth=personHeight*(41/120);
+    const stageWidth=stage.clientWidth;
+    const bottom=frameBounds.bottom;
+    const top=bottom-personHeight;
+    const preferredLeft=frameBounds.left-personWidth-10;
+    const left=Math.max(5,Math.min(preferredLeft,Math.max(5,stageWidth-personWidth-5)));
+
+    ref.style.left=`${left}px`;
+    ref.style.top=`${top}px`;
+    ref.style.width=`${personWidth}px`;
+    ref.style.height=`${personHeight}px`;
+  }
+
+  const proto=CanvasRenderingContext2D.prototype;
+  const originalClearRect=proto.clearRect;
+  const originalArc=proto.arc;
+
+  proto.clearRect=function(...args){
+    if(this.canvas===canvas){
+      frameBounds=null;
+      frameScale=0;
+      queueRender();
+    }
+    return originalClearRect.apply(this,args);
+  };
+
+  proto.arc=function(x,y,r,...rest){
+    if(this.canvas===canvas){
+      const m=this.getTransform();
+      const pixelRatio=canvas.width/Math.max(1,canvas.clientWidth);
+      const scale=Math.hypot(m.a,m.b)/Math.max(.0001,pixelRatio);
+      if(Number.isFinite(scale)&&scale>0){
+        const sx=(m.a*x+m.c*y+m.e)/pixelRatio+CANVAS_SHIFT;
+        const sy=(m.b*x+m.d*y+m.f)/pixelRatio;
+        const sr=Math.abs(r)*scale;
+        const b={left:sx-sr,right:sx+sr,top:sy-sr,bottom:sy+sr};
+        if(!frameBounds)frameBounds=b;
+        else{
+          frameBounds.left=Math.min(frameBounds.left,b.left);
+          frameBounds.right=Math.max(frameBounds.right,b.right);
+          frameBounds.top=Math.min(frameBounds.top,b.top);
+          frameBounds.bottom=Math.max(frameBounds.bottom,b.bottom);
+        }
+        frameScale=scale;
+        queueRender();
+      }
+    }
+    return originalArc.call(this,x,y,r,...rest);
+  };
+
+  window.addEventListener('resize',queueRender);
+}
