@@ -1,7 +1,16 @@
+import {getCatalog} from './cluster-tree.js';
+import {dateKey,shiftDate,demoData,validateImport,displayPurchaseDates,validDate} from './core.js';
+
 const REFERENCE_CENTS=2000;
 const GAP=10;
 const stage=document.getElementById('stage');
 const canvas=document.getElementById('canvas');
+const bankKey='money-bubble-bank-display-v1';
+const localKey='bulles-transactions-v1';
+
+function read(key,fallback=null){try{const raw=localStorage.getItem(key);return raw?JSON.parse(raw):fallback}catch{return fallback}}
+function buildDemo(){const today=dateKey(),list=[];for(let i=-44;i<=0;i++){const day=shiftDate(today,i);if(i!==0&&Math.abs(i)%8===0)continue;for(const t of demoData(day).filter(t=>t.date===day)){if(i!==0&&t.id.endsWith('-4')&&Math.abs(i)%3!==0)continue;list.push({...t,amountCents:t.amountCents+Math.abs(i)%5*35});}}return list}
+function transactions(){const bank=read(bankKey);if(Array.isArray(bank?.transactions))return bank.transactions;const stored=read(localKey);try{if(stored)return validateImport(stored)}catch{}return buildDemo()}
 
 if(stage&&canvas){
   const style=document.createElement('style');
@@ -21,40 +30,54 @@ if(stage&&canvas){
   stage.append(ref);
 
   let frameBounds=null;
-  let frameScale=0;
+  let liveCameraScale=0;
+  let baseMonetaryScale=1;
   let renderQueued=false;
+  let smoothedBottom=null;
+
+  function refreshBaseScale(){
+    try{
+      const items=displayPurchaseDates(transactions()).filter(t=>validDate(t.date));
+      if(!items.length){baseMonetaryScale=1;return;}
+      const r=stage.getBoundingClientRect();
+      baseMonetaryScale=getCatalog(items).camera({mode:'day',date:items[0].date,width:r.width,height:r.height}).scale;
+    }catch{baseMonetaryScale=1;}
+  }
 
   function queueRender(){
     if(renderQueued)return;
     renderQueued=true;
-    queueMicrotask(()=>{
+    requestAnimationFrame(()=>{
       renderQueued=false;
       renderReference();
     });
   }
 
   function renderReference(){
-    if(!frameBounds||!frameScale){
+    if(!frameBounds||!liveCameraScale){
       ref.hidden=true;
       canvas.style.transform='';
       return;
     }
     ref.hidden=false;
 
-    // Bubble radius is sqrt(amountCents), so this makes the human exactly as
-    // tall as the diameter of a 20 € bubble at the current live camera scale.
-    const personHeight=2*Math.sqrt(REFERENCE_CENTS)*frameScale;
+    // targetR already includes ClusterCatalog.camera().scale. The canvas
+    // transform only contains the live zoom/fitZoom. Multiplying both makes
+    // this exactly the rendered diameter of a 20 € bubble.
+    const personHeight=2*Math.sqrt(REFERENCE_CENTS)*baseMonetaryScale*liveCameraScale;
     const personWidth=personHeight*(38/118);
-    const rawLeft=frameBounds.left-GAP-personWidth;
-    const rawRight=frameBounds.right;
-    const combinedCenter=(rawLeft+rawRight)/2;
-    const shift=stage.clientWidth/2-combinedCenter;
 
-    // Shift the cloud and the scale reference together so the viewport is
-    // centered on the combined silhouette + bubble cloud, not the cloud alone.
+    // Keep centering stable: never derive the canvas translation from the
+    // animated cloud bounds. The only changing part is the monetary scale.
+    // This prevents the feedback/jitter that happened during swipes.
+    const shift=(personWidth+GAP)/2;
     canvas.style.transform=`translateX(${shift}px)`;
-    ref.style.left=`${rawLeft+shift}px`;
-    ref.style.top=`${frameBounds.bottom-personHeight}px`;
+
+    const targetBottom=frameBounds.bottom;
+    smoothedBottom=smoothedBottom===null?targetBottom:smoothedBottom+(targetBottom-smoothedBottom)*.45;
+    const cloudLeft=frameBounds.left+shift;
+    ref.style.left=`${cloudLeft-GAP-personWidth}px`;
+    ref.style.top=`${smoothedBottom-personHeight}px`;
     ref.style.width=`${personWidth}px`;
     ref.style.height=`${personHeight}px`;
   }
@@ -66,8 +89,7 @@ if(stage&&canvas){
   proto.clearRect=function(...args){
     if(this.canvas===canvas){
       frameBounds=null;
-      frameScale=0;
-      queueRender();
+      liveCameraScale=0;
     }
     return originalClearRect.apply(this,args);
   };
@@ -89,12 +111,15 @@ if(stage&&canvas){
           frameBounds.top=Math.min(frameBounds.top,b.top);
           frameBounds.bottom=Math.max(frameBounds.bottom,b.bottom);
         }
-        frameScale=scale;
-        queueRender();
+        liveCameraScale=scale;
       }
     }
-    return originalArc.call(this,x,y,r,...rest);
+    const result=originalArc.call(this,x,y,r,...rest);
+    if(this.canvas===canvas)queueRender();
+    return result;
   };
 
-  window.addEventListener('resize',queueRender);
+  refreshBaseScale();
+  new ResizeObserver(()=>{smoothedBottom=null;refreshBaseScale();queueRender()}).observe(stage);
+  window.addEventListener('storage',()=>{refreshBaseScale();queueRender()});
 }
