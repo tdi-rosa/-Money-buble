@@ -1,15 +1,14 @@
 const REFERENCE_CENTS=2000;
-const REFERENCE_VISUAL_FACTOR=.1;
-const CANVAS_SHIFT=16;
+const GAP=10;
 const stage=document.getElementById('stage');
 const canvas=document.getElementById('canvas');
 
 if(stage&&canvas){
   const style=document.createElement('style');
   style.textContent=`
-#scaleReference{position:absolute;left:6px;top:0;z-index:3;pointer-events:none;transform-origin:left top;will-change:top,width,height;}
+#scaleReference{position:absolute;left:0;top:0;z-index:3;pointer-events:none;transform-origin:left top;will-change:left,top,width,height;}
 #scaleReference svg{display:block;width:100%;height:100%;overflow:visible;shape-rendering:geometricPrecision;}
-#canvas{transform:translateX(${CANVAS_SHIFT}px);}
+#canvas{will-change:transform;}
 `;
   document.head.append(style);
 
@@ -24,7 +23,6 @@ if(stage&&canvas){
   let frameBounds=null;
   let frameScale=0;
   let renderQueued=false;
-  let smoothBottom=null;
 
   function queueRender(){
     if(renderQueued)return;
@@ -38,19 +36,27 @@ if(stage&&canvas){
   function renderReference(){
     if(!frameBounds||!frameScale){
       ref.hidden=true;
+      canvas.style.transform='';
       return;
     }
     ref.hidden=false;
 
-    const personHeight=2*Math.sqrt(REFERENCE_CENTS)*frameScale*REFERENCE_VISUAL_FACTOR;
+    // Bubble radius is sqrt(amountCents), so this makes the human exactly as
+    // tall as the diameter of a 20 € bubble at the current live camera scale.
+    const personHeight=2*Math.sqrt(REFERENCE_CENTS)*frameScale;
     const personWidth=personHeight*(38/118);
-    const targetBottom=frameBounds.bottom;
-    smoothBottom=smoothBottom===null?targetBottom:smoothBottom+(targetBottom-smoothBottom)*.32;
-    const top=smoothBottom-personHeight;
+    const rawLeft=frameBounds.left-GAP-personWidth;
+    const rawRight=frameBounds.right;
+    const combinedCenter=(rawLeft+rawRight)/2;
+    const shift=stage.clientWidth/2-combinedCenter;
 
-    ref.style.width=`${Math.max(2,personWidth)}px`;
-    ref.style.height=`${Math.max(6,personHeight)}px`;
-    ref.style.top=`${top}px`;
+    // Shift the cloud and the scale reference together so the viewport is
+    // centered on the combined silhouette + bubble cloud, not the cloud alone.
+    canvas.style.transform=`translateX(${shift}px)`;
+    ref.style.left=`${rawLeft+shift}px`;
+    ref.style.top=`${frameBounds.bottom-personHeight}px`;
+    ref.style.width=`${personWidth}px`;
+    ref.style.height=`${personHeight}px`;
   }
 
   const proto=CanvasRenderingContext2D.prototype;
@@ -72,7 +78,7 @@ if(stage&&canvas){
       const pixelRatio=canvas.width/Math.max(1,canvas.clientWidth);
       const scale=Math.hypot(m.a,m.b)/Math.max(.0001,pixelRatio);
       if(Number.isFinite(scale)&&scale>0){
-        const sx=(m.a*x+m.c*y+m.e)/pixelRatio+CANVAS_SHIFT;
+        const sx=(m.a*x+m.c*y+m.e)/pixelRatio;
         const sy=(m.b*x+m.d*y+m.f)/pixelRatio;
         const sr=Math.abs(r)*scale;
         const b={left:sx-sr,right:sx+sr,top:sy-sr,bottom:sy+sr};
@@ -90,5 +96,5 @@ if(stage&&canvas){
     return originalArc.call(this,x,y,r,...rest);
   };
 
-  window.addEventListener('resize',()=>{smoothBottom=null;queueRender()});
+  window.addEventListener('resize',queueRender);
 }
